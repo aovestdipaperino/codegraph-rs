@@ -343,6 +343,10 @@ async fn sync_project_inner(project_root: &Path) {
                 let tokens = cg.get_tokens_saved().await.unwrap_or(0);
                 gdb.upsert(project_root, tokens).await;
             }
+            // Record which branch this DB was synced on.
+            if let Some(branch) = read_project_branch(project_root) {
+                cg.set_metadata("current_branch", &branch).await.ok();
+            }
         }
         Err(e) => {
             daemon_log(&format!("sync failed for {}: {e}", project_root.display()));

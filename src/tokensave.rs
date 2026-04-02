@@ -739,6 +739,11 @@ impl TokenSave {
             .await
     }
 
+    /// Write a key-value pair to the metadata table.
+    pub async fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
+        self.db.set_metadata(key, value).await
+    }
+
     /// Returns all nodes under a directory prefix filtered by kinds.
     pub async fn get_nodes_by_dir(&self, dir: &str, kinds: &[NodeKind]) -> Result<Vec<Node>> {
         self.db.get_nodes_by_dir(dir, kinds).await
