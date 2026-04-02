@@ -345,6 +345,33 @@ pub fn enable_autostart() -> Result<()> {
     Ok(())
 }
 
+/// Enable or disable branch tracking and restart the daemon if running.
+pub fn set_track_branches(enable: bool) -> Result<()> {
+    let mut config = crate::user_config::UserConfig::load();
+    config.track_branches = enable;
+    config.save();
+
+    let label = if enable { "enabled" } else { "disabled" };
+    eprintln!("\x1b[32m✔\x1b[0m Branch tracking {label}");
+
+    // Restart daemon if currently running so it picks up the new config.
+    if running_daemon_pid().is_some() {
+        eprintln!("  Restarting daemon...");
+        stop()?;
+        // Give it a moment to release the PID file.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Re-launch in background (non-foreground).
+        let bin = crate::agents::which_tokensave().unwrap_or_else(|| "tokensave".to_string());
+        std::process::Command::new(bin)
+            .args(["daemon"])
+            .spawn()
+            .ok();
+        eprintln!("  Daemon restarted");
+    }
+
+    Ok(())
+}
+
 /// Windows-only helpers for UAC elevation.
 #[cfg(target_os = "windows")]
 mod win_elevated {

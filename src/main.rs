@@ -237,6 +237,12 @@ enum Commands {
         /// Remove autostart service
         #[arg(long)]
         disable_autostart: bool,
+        /// Enable per-branch database tracking (requires daemon)
+        #[arg(long)]
+        track_branches: bool,
+        /// Disable per-branch database tracking
+        #[arg(long)]
+        untrack_branches: bool,
     },
 }
 
@@ -741,7 +747,7 @@ async fn run(cli: Cli) -> tokensave::errors::Result<()> {
         Commands::Doctor { agent } => {
             tokensave::doctor::run_doctor(agent.as_deref()).await;
         }
-        Commands::Daemon { foreground, stop, status, enable_autostart, disable_autostart } => {
+        Commands::Daemon { foreground, stop, status, enable_autostart, disable_autostart, track_branches, untrack_branches } => {
             if stop {
                 tokensave::daemon::stop()?;
             } else if status {
@@ -751,6 +757,10 @@ async fn run(cli: Cli) -> tokensave::errors::Result<()> {
                 tokensave::daemon::enable_autostart()?;
             } else if disable_autostart {
                 tokensave::daemon::disable_autostart()?;
+            } else if track_branches {
+                tokensave::daemon::set_track_branches(true)?;
+            } else if untrack_branches {
+                tokensave::daemon::set_track_branches(false)?;
             } else {
                 tokensave::daemon::run(foreground).await?;
             }
