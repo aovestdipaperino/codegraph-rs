@@ -76,6 +76,60 @@ When Claude Code works on a complex task, it spawns **Explore agents** that scan
 
 ---
 
+## Branch Tracking
+
+tokensave supports three operating modes depending on how you want to manage your index:
+
+| Mode | Daemon | Branch tracking | Best for |
+|---|---|---|---|
+| **Manual** | off | n/a | Full control — you run `tokensave sync` when you want |
+| **Auto-sync** | on | off *(default)* | Fire-and-forget — daemon syncs on every file change |
+| **Branch-aware** | on | on | Multi-branch workflows — each branch gets its own index |
+
+### Manual (no daemon)
+
+Run `tokensave sync` yourself. The index reflects whatever branch you last synced on. If you switch branches, run `tokensave sync` again to re-index.
+
+### Auto-sync (daemon, no branch tracking)
+
+```bash
+tokensave daemon                     # start the daemon
+tokensave daemon --enable-autostart  # auto-start on login
+```
+
+The daemon watches for file changes and syncs automatically. There is one database shared across all branches — switching branches triggers a re-sync on the next file change.
+
+### Branch-aware (daemon + branch tracking)
+
+```bash
+tokensave daemon --track-branches    # enable per-branch databases
+```
+
+The daemon monitors `.git/HEAD` and maintains a separate database per branch:
+
+```
+.tokensave/
+  tokensave.db          # main/master (always the canonical baseline)
+  branches/
+    feature-foo.db      # created when you first switch to feature-foo
+    bugfix-bar.db
+```
+
+When you switch branches, the daemon:
+1. Seeds a new branch database from the current one (if it doesn't exist yet)
+2. Swaps to the branch database
+3. Runs an incremental sync immediately
+
+Switching back to a previously visited branch is instant — the database is already there.
+
+To disable:
+
+```bash
+tokensave daemon --untrack-branches
+```
+
+---
+
 ## What's New in v3.1.0
 
 ### Edge Deduplication Fix
@@ -359,6 +413,8 @@ tokensave daemon                 # Start background file watcher
 tokensave daemon --enable-autostart  # Install as launchd/systemd service
 tokensave daemon --disable-autostart # Remove autostart service
 tokensave daemon --status        # Show daemon status
+tokensave daemon --track-branches    # Enable per-branch database tracking
+tokensave daemon --untrack-branches  # Disable per-branch database tracking
 tokensave disable-upload-counter # Opt out of worldwide counter uploads
 tokensave enable-upload-counter  # Re-enable worldwide counter uploads
 tokensave doctor [--agent NAME]  # Check installation health (default: all agents)
