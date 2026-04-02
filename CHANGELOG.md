@@ -5,10 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0-beta.1] - 2026-04-02
 
 ### Added
 - **Per-branch database tracking** — `tokensave daemon --track-branches` enables the daemon to maintain separate databases per git branch. On branch switch, the daemon seeds a new DB from the current one and runs an immediate incremental sync. Disable with `--untrack-branches`. Requires the background daemon.
+- **`tokensave status --short`** — shows only the header box (version, tokens, sync times) without the logo or detailed stats grid.
+- **Windows UAC elevation for daemon install** — on non-elevated Windows terminals, service installation now requests UAC elevation for just the SCM step. ([#7](https://github.com/aovestdipaperino/tokensave/issues/7))
+- **Quieter CLI version warnings** — patch-only releases no longer trigger update warnings; only minor/major bumps do. The status page still shows all updates.
 
 ## [3.1.1] - 2026-04-02
 
