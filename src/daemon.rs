@@ -106,6 +106,12 @@ async fn run_loop(debounce: Duration) -> Result<()> {
     let mut watchers: HashMap<PathBuf, RecommendedWatcher> = HashMap::new();
     let mut dirty: HashMap<PathBuf, Instant> = HashMap::new();
 
+    let config = crate::user_config::UserConfig::load();
+    let track_branches = config.track_branches;
+
+    // Per-project branch tracking: last known branch name.
+    let mut known_branches: HashMap<PathBuf, String> = HashMap::new();
+
     // Initial project discovery
     let project_paths = discover_projects().await;
     for path in &project_paths {
@@ -114,10 +120,21 @@ async fn run_loop(debounce: Duration) -> Result<()> {
         }
     }
 
+    if track_branches {
+        for path in &project_paths {
+            if let Some(branch) = read_project_branch(path) {
+                known_branches.insert(path.clone(), branch);
+            }
+        }
+    }
+
     daemon_log(&format!("started, watching {} projects", watchers.len()));
 
     let mut discovery_interval = time::interval(Duration::from_secs(60));
     discovery_interval.tick().await; // consume first immediate tick
+
+    let mut head_poll_interval = time::interval(Duration::from_secs(3));
+    head_poll_interval.tick().await; // consume first immediate tick
 
     // Set up ctrl-c handler
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
@@ -169,6 +186,53 @@ async fn run_loop(debounce: Duration) -> Result<()> {
                 for path in stale {
                     watchers.remove(&path);
                     dirty.remove(&path);
+                }
+            }
+            _ = head_poll_interval.tick(), if track_branches => {
+                for (path, _watcher) in &watchers {
+                    let Some(current_branch) = read_project_branch(path) else {
+                        continue;
+                    };
+                    let previous = known_branches.get(path).map(String::as_str);
+                    if previous == Some(&current_branch) {
+                        continue;
+                    }
+
+                    daemon_log(&format!(
+                        "branch switch detected in {}: {} → {}",
+                        path.display(),
+                        previous.unwrap_or("(unknown)"),
+                        current_branch
+                    ));
+
+                    let ts_dir = crate::config::get_tokensave_dir(path);
+                    let target_db = resolve_branch_db_path(&ts_dir, &current_branch);
+
+                    // Copy-on-switch: seed from current DB if target doesn't exist.
+                    if !target_db.exists() {
+                        let source_db = ts_dir.join("tokensave.db");
+                        if source_db.exists() {
+                            if let Some(parent) = target_db.parent() {
+                                std::fs::create_dir_all(parent).ok();
+                            }
+                            if let Err(e) = std::fs::copy(&source_db, &target_db) {
+                                daemon_log(&format!(
+                                    "failed to seed branch DB {}: {e}",
+                                    target_db.display()
+                                ));
+                            } else {
+                                daemon_log(&format!(
+                                    "seeded branch DB: {}",
+                                    target_db.display()
+                                ));
+                            }
+                        }
+                    }
+
+                    known_branches.insert(path.clone(), current_branch);
+
+                    // Immediate sync (no debounce for branch switches).
+                    sync_project(path).await;
                 }
             }
         }
