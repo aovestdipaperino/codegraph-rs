@@ -3,6 +3,9 @@
 ## Status: Design (not implemented)
 
 Created: 2026-04-02
+Updated: 2026-04-02 — scoped to daemon-only, opt-in via `--track-branches`
+
+**Implementation spec:** `docs/superpowers/specs/2026-04-02-branch-tracking-design.md`
 
 ## The Problem
 
@@ -183,18 +186,43 @@ Each branch DB is a full copy (~37MB in a typical project). Mitigation strategie
 - First sync on a new branch requires a file copy (fast) + incremental sync.
 - DB connection management becomes slightly more complex (resolve path per branch).
 
+## Activation: Daemon-Only, Opt-In
+
+Branch tracking is **not enabled by default**. It requires the background daemon and an explicit opt-in:
+
+```bash
+tokensave daemon --track-branches      # enable
+tokensave daemon --untrack-branches    # disable
+```
+
+These are config toggles that persist to `~/.tokensave/config.toml` (`track_branches = true/false`) and restart the daemon. Without the daemon, tokensave uses a single DB regardless of branch.
+
+### Three Operating Modes
+
+| Mode | Daemon | Branch tracking | Use case |
+|---|---|---|---|
+| Manual | off | n/a | Full control, sync when you want |
+| Auto-sync | on | off (default) | Fire-and-forget, single-branch workflow |
+| Branch-aware | on | on | Multi-branch workflows, per-branch graphs |
+
+### HEAD Watcher
+
+When branch tracking is enabled, the daemon polls `.git/HEAD` every 2-3 seconds (short interval — branch switches should feel instant). On change, it copies the active DB as a seed (if needed), swaps connections, and runs incremental sync immediately with no debounce.
+
 ## Implementation Sequence
 
-1. **Store current branch in metadata** — add `current_branch` key, write it on every sync.
-2. **Branch-aware DB path resolution** — `resolve_db_path()` function, create `branches/` directory.
-3. **Copy-on-switch** — detect branch change, copy active DB to new branch path, reopen.
-4. **Prune stale branch DBs** — integrate into `tokensave doctor`, add TTL config.
-5. **Cross-branch impact tool** — `tokensave_branch_impact` MCP tool, open two DBs, diff graphs.
-6. **Daemon awareness** — the daemon watcher needs to detect branch switches (via HEAD change) and handle DB swapping.
+1. **UserConfig**: add `track_branches: bool` field (default false).
+2. **CLI flags**: `--track-branches` / `--untrack-branches` on Daemon subcommand. Write config + restart daemon.
+3. **DB path resolution**: `resolve_db_path()` function, `branches/` directory, branch name sanitization.
+4. **Metadata**: store `current_branch` in metadata table on sync.
+5. **HEAD watcher**: poll `.git/HEAD` on short interval in the daemon loop.
+6. **Copy-on-switch**: on branch change, copy active DB, swap connection, sync.
+7. **Doctor**: report branch tracking state, list branch DBs, flag stale ones.
+8. **README**: add "Branch Tracking" section.
+9. **Cross-branch impact tool** (future): `tokensave_branch_impact` MCP tool.
 
 ## Open Questions
 
-- Should the MCP server detect branch switches mid-session and swap DBs automatically, or only at sync time?
-- Should `tokensave status` show which branch the DB represents?
 - How should `tokensave sync --force` behave — re-index current branch DB only, or all branch DBs?
 - Should there be a config option for max branch DB count or max total disk usage?
+- Should `tokensave status` show which branch the DB represents?
