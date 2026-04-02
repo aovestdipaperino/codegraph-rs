@@ -172,6 +172,36 @@ fn check_daemon(dc: &mut DoctorCounters) {
     } else {
         dc.warn("Autostart not configured — run `tokensave daemon --enable-autostart`");
     }
+
+    let config = crate::user_config::UserConfig::load();
+    if config.track_branches {
+        dc.pass("Branch tracking enabled");
+    } else {
+        dc.info("Branch tracking disabled (enable with `tokensave daemon --track-branches`)");
+    }
+
+    // Report branch DBs if any exist.
+    let project_path = std::env::current_dir().unwrap_or_default();
+    let branches_dir = crate::config::get_tokensave_dir(&project_path).join("branches");
+    if branches_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&branches_dir) {
+            let dbs: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "db"))
+                .collect();
+            if !dbs.is_empty() {
+                for entry in &dbs {
+                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    let name = entry.file_name();
+                    dc.info(&format!(
+                        "Branch DB: {} ({})",
+                        name.to_string_lossy(),
+                        crate::display::format_bytes(size)
+                    ));
+                }
+            }
+        }
+    }
 }
 
 /// Check network connectivity.
