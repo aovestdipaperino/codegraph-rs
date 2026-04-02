@@ -49,3 +49,34 @@ fn resolve_db_path_feature_branch() {
         ts_dir.join("branches/feature--foo.db")
     );
 }
+
+#[test]
+fn copy_on_switch_creates_branch_db() {
+    let dir = tempfile::tempdir().unwrap();
+    let ts_dir = dir.path().join(".tokensave");
+    std::fs::create_dir_all(&ts_dir).unwrap();
+
+    // Create a fake main DB.
+    let main_db = ts_dir.join("tokensave.db");
+    std::fs::write(&main_db, b"fake-db-content").unwrap();
+
+    // Resolve path for a feature branch.
+    let branch_db = tokensave::daemon::resolve_branch_db_path(&ts_dir, "feature/new-thing");
+    assert!(!branch_db.exists());
+
+    // Simulate copy-on-switch: create parent dir and copy.
+    if let Some(parent) = branch_db.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::copy(&main_db, &branch_db).unwrap();
+
+    assert!(branch_db.exists());
+    assert_eq!(
+        std::fs::read(&branch_db).unwrap(),
+        b"fake-db-content"
+    );
+    assert_eq!(
+        branch_db,
+        ts_dir.join("branches/feature--new-thing.db")
+    );
+}
