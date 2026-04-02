@@ -61,6 +61,10 @@ pub struct UserConfig {
     /// UNIX timestamp of last country flags fetch.
     #[serde(default)]
     pub last_flags_fetch_at: i64,
+
+    /// Whether the daemon should maintain per-branch databases.
+    #[serde(default)]
+    pub track_branches: bool,
 }
 
 fn default_true() -> bool {
@@ -87,6 +91,7 @@ impl Default for UserConfig {
             daemon_debounce: default_daemon_debounce(),
             cached_country_flags: Vec::new(),
             last_flags_fetch_at: 0,
+            track_branches: false,
         }
     }
 }
