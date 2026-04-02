@@ -56,6 +56,43 @@ pub fn is_autostart_enabled() -> bool {
     build_daemon().ok().is_some_and(|d| d.is_service_installed())
 }
 
+/// Parse the branch name from `.git/HEAD` content.
+/// Returns `None` for detached HEAD (raw SHA).
+pub fn parse_head_branch(head_content: &str) -> Option<String> {
+    let trimmed = head_content.trim();
+    trimmed
+        .strip_prefix("ref: refs/heads/")
+        .map(|s| s.to_string())
+}
+
+/// Sanitize a branch name for use as a filename.
+/// Replaces `/` with `--` and strips leading dots.
+pub fn sanitize_branch(name: &str) -> String {
+    let sanitized = name.replace('/', "--");
+    if sanitized.starts_with('.') {
+        format!("_{}", &sanitized[1..])
+    } else {
+        sanitized
+    }
+}
+
+/// Resolve the DB path for a given branch.
+/// `main` and `master` map to `tokensave.db`; others to `branches/<sanitized>.db`.
+pub fn resolve_branch_db_path(tokensave_dir: &Path, branch: &str) -> PathBuf {
+    if branch == "main" || branch == "master" {
+        tokensave_dir.join("tokensave.db")
+    } else {
+        tokensave_dir.join("branches").join(format!("{}.db", sanitize_branch(branch)))
+    }
+}
+
+/// Read the current branch name from a project's `.git/HEAD`.
+fn read_project_branch(project_root: &Path) -> Option<String> {
+    let head_path = project_root.join(".git/HEAD");
+    let content = std::fs::read_to_string(head_path).ok()?;
+    parse_head_branch(&content)
+}
+
 /// Directories to ignore inside watched projects.
 const IGNORED_DIRS: &[&str] = &[
     ".tokensave", ".git", "node_modules", "target", ".build",
