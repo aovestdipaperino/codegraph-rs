@@ -69,8 +69,8 @@ pub fn parse_head_branch(head_content: &str) -> Option<String> {
 /// Replaces `/` with `--` and strips leading dots.
 pub fn sanitize_branch(name: &str) -> String {
     let sanitized = name.replace('/', "--");
-    if sanitized.starts_with('.') {
-        format!("_{}", &sanitized[1..])
+    if let Some(rest) = sanitized.strip_prefix('.') {
+        format!("_{rest}")
     } else {
         sanitized
     }
@@ -189,7 +189,7 @@ async fn run_loop(debounce: Duration) -> Result<()> {
                 }
             }
             _ = head_poll_interval.tick(), if track_branches => {
-                for (path, _watcher) in &watchers {
+                for path in watchers.keys() {
                     let Some(current_branch) = read_project_branch(path) else {
                         continue;
                     };
