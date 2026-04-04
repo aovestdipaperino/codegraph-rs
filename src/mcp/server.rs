@@ -5,7 +5,7 @@
 //! The server exposes code graph tools via the Model Context Protocol,
 //! allowing AI assistants to query the code graph interactively.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -67,6 +67,11 @@ pub struct McpServer {
     version_cache: std::sync::Mutex<VersionCheckState>,
     /// Pending JSON-RPC notifications to send before the next response.
     pending_notifications: std::sync::Mutex<Vec<Value>>,
+    /// Session-level file dedup: tracks file paths already returned in this
+    /// MCP session. When a tool call touches files the agent already received,
+    /// the response is annotated with a hint so the agent knows it can rely
+    /// on its existing context instead of re-reading the full content.
+    seen_files: std::sync::Mutex<HashSet<String>>,
 }
 
 impl McpServer {
@@ -93,6 +98,7 @@ impl McpServer {
                 checked_at: None,
             }),
             pending_notifications: std::sync::Mutex::new(Vec::new()),
+            seen_files: std::sync::Mutex::new(HashSet::new()),
         }
     }
 
@@ -479,6 +485,39 @@ impl McpServer {
                 self.accumulate_tokens_saved(&result.touched_files).await;
                 self.maybe_flush_worldwide().await;
 
+                // Session-level file dedup: if this response references files
+                // the agent already received earlier in the session, prepend a
+                // hint so it knows the data is redundant.
+                if !result.touched_files.is_empty() {
+                    if let Ok(mut seen) = self.seen_files.lock() {
+                        let repeated: Vec<&str> = result
+                            .touched_files
+                            .iter()
+                            .filter(|f| seen.contains(f.as_str()))
+                            .map(|f| f.as_str())
+                            .collect();
+                        if !repeated.is_empty() {
+                            let hint = format!(
+                                "Note: {} file(s) already returned earlier in this session: {}. \
+                                 You already have this context — no need to re-read.",
+                                repeated.len(),
+                                repeated.join(", ")
+                            );
+                            if let Some(content) = result
+                                .value
+                                .get_mut("content")
+                                .and_then(|c| c.as_array_mut())
+                            {
+                                content.insert(0, json!({"type": "text", "text": hint}));
+                            }
+                        }
+                        // Record all files from this call as seen
+                        for f in &result.touched_files {
+                            seen.insert(f.clone());
+                        }
+                    }
+                }
+
                 // Prepend version-update warning + queue logging notification.
                 if let Some(warning) = self.check_version_update().await {
                     if let Some(content) = result
@@ -562,6 +601,8 @@ impl McpServer {
             .map(|counts| json!(*counts))
             .unwrap_or(json!({}));
 
+        let seen_files_count = self.seen_files.lock().map(|s| s.len()).unwrap_or(0);
+
         let mut stats = json!({
             "uptime_secs": uptime.as_secs(),
             "total_requests": self.stats.total_requests.load(Ordering::Relaxed),
@@ -569,6 +610,7 @@ impl McpServer {
             "errors": self.stats.errors.load(Ordering::Relaxed),
             "tool_call_counts": tool_counts,
             "approx_tokens_saved": self.tokens_saved.load(Ordering::Relaxed),
+            "session_files_cached": seen_files_count,
         });
 
         if let Some(ref gdb) = self.global_db {
