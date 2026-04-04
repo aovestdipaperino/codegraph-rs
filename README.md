@@ -76,57 +76,23 @@ When Claude Code works on a complex task, it spawns **Explore agents** that scan
 
 ---
 
-## Branch Tracking
+## What's New in v3.2.1
 
-tokensave supports three operating modes depending on how you want to manage your index:
+### 13-26x Faster Indexing
 
-| Mode | Daemon | Branch tracking | Best for |
-|---|---|---|---|
-| **Manual** | off | n/a | Full control — you run `tokensave sync` when you want |
-| **Auto-sync** | on | off *(default)* | Fire-and-forget — daemon syncs on every file change |
-| **Branch-aware** | on | on | Multi-branch workflows — each branch gets its own index |
+Full index performance has been dramatically improved through rayon parallel extraction, prepared-statement DB writes, suffix-indexed reference resolution, and bulk-load mode with deferred index creation. A 1,782-file codebase now indexes in 1.2s (down from 14.8s). A 28K-file monorepo indexes in 22s (down from 565s).
 
-### Manual (no daemon)
+### .gitignore Integration
 
-Run `tokensave sync` yourself. The index reflects whatever branch you last synced on. If you switch branches, run `tokensave sync` again to re-index.
+When creating a new index, tokensave now asks to add `.tokensave` to `.gitignore`. The `status` command warns if `.tokensave` is not gitignored.
 
-### Auto-sync (daemon, no branch tracking)
+### Direct Schema Creation
 
-```bash
-tokensave daemon                     # start the daemon
-tokensave daemon --enable-autostart  # auto-start on login
-```
+New databases get the final schema in one shot instead of running v0-v5 migrations sequentially.
 
-The daemon watches for file changes and syncs automatically. There is one database shared across all branches — switching branches triggers a re-sync on the next file change.
+### Daemon Indicator Alignment
 
-### Branch-aware (daemon + branch tracking)
-
-```bash
-tokensave daemon --track-branches    # enable per-branch databases
-```
-
-The daemon monitors `.git/HEAD` and maintains a separate database per branch:
-
-```
-.tokensave/
-  tokensave.db          # main/master (always the canonical baseline)
-  branches/
-    feature-foo.db      # created when you first switch to feature-foo
-    bugfix-bar.db
-```
-
-When you switch branches, the daemon:
-1. Seeds a new branch database from the current one (if it doesn't exist yet)
-2. Swaps to the branch database
-3. Runs an incremental sync immediately
-
-Switching back to a previously visited branch is instant — the database is already there.
-
-To disable:
-
-```bash
-tokensave daemon --untrack-branches
-```
+The status display now reserves consistent space for the daemon indicator (😈) so flags and text stay aligned whether the daemon is running or not.
 
 ---
 
@@ -413,8 +379,6 @@ tokensave daemon                 # Start background file watcher
 tokensave daemon --enable-autostart  # Install as launchd/systemd service
 tokensave daemon --disable-autostart # Remove autostart service
 tokensave daemon --status        # Show daemon status
-tokensave daemon --track-branches    # Enable per-branch database tracking
-tokensave daemon --untrack-branches  # Disable per-branch database tracking
 tokensave disable-upload-counter # Opt out of worldwide counter uploads
 tokensave enable-upload-counter  # Re-enable worldwide counter uploads
 tokensave doctor [--agent NAME]  # Check installation health (default: all agents)
@@ -1032,7 +996,7 @@ Full-index benchmark on a 1,782-file mixed Rust/Java/Scala codebase (57K nodes, 
 | Tool | Time | Speedup |
 |---|---|---|
 | CodeGraph (TypeScript, v0.6.8) | 31.2s | 1x |
-| **tokensave (Rust, v3.1.1)** | **1.2s** | **26x** |
+| **tokensave (Rust, v3.2.1)** | **1.2s** | **26x** |
 
 Key optimizations: rayon parallel extraction, prepared-statement DB writes, suffix-indexed reference resolution, and bulk-load mode with deferred index creation.
 
