@@ -1,6 +1,6 @@
 [package]
 name = "tokensave"
-version = "3.3.0-beta.1"
+version = "3.4.0-beta.1"
 edition = "2021"
 description = "Code intelligence tool that builds a semantic knowledge graph from Rust, Go, Java, Scala, TypeScript, Python, C, C++, Kotlin, C#, Swift, and many more codebases"
 license = "MIT"
@@ -9,6 +9,7 @@ homepage = "https://github.com/aovestdipaperino/tokensave"
 readme = "README.md"
 keywords = ["code-intelligence", "knowledge-graph", "mcp", "tree-sitter", "claude"]
 categories = ["development-tools", "command-line-utilities"]
+exclude = ["/local-only", "/.codegraph", "/docs/plans"]
 
 [features]
 default = ["full"]
@@ -40,6 +41,7 @@ lang-cobol = []
 lang-msbasic2 = []
 lang-gwbasic = []
 lang-qbasic = []
+test-transport = []
 
 [lib]
 name = "tokensave"

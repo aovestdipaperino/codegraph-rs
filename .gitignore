@@ -6,3 +6,4 @@
 .claude/settings.local.json
 docs/superpowers
 .worktrees
+/local-only
