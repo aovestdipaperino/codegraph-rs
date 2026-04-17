@@ -156,16 +156,12 @@ fn is_beta_returns_bool() {
 }
 
 #[test]
-fn upgrade_command_always_suggests_tokensave_upgrade() {
+fn upgrade_command_matches_install_method() {
     use tokensave::cloud::{upgrade_command, InstallMethod};
-    for method in &[
-        InstallMethod::Cargo,
-        InstallMethod::Brew,
-        InstallMethod::Scoop,
-        InstallMethod::Unknown,
-    ] {
-        assert_eq!(upgrade_command(method), "tokensave upgrade");
-    }
+    assert_eq!(upgrade_command(&InstallMethod::Cargo), "tokensave upgrade");
+    assert_eq!(upgrade_command(&InstallMethod::Brew), "brew upgrade tokensave");
+    assert_eq!(upgrade_command(&InstallMethod::Scoop), "scoop update tokensave");
+    assert_eq!(upgrade_command(&InstallMethod::Unknown), "tokensave upgrade");
 }
 
 #[test]

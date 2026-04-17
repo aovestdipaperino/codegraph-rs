@@ -562,9 +562,11 @@ async fn run(cli: Cli) -> tokensave::errors::Result<()> {
                 if tokensave::cloud::is_newer_version(current_version, &latest)
                     && now - config.last_version_warning_at >= 900
                 {
+                    let upgrade_cmd =
+                        tokensave::cloud::upgrade_command(&tokensave::cloud::detect_install_method());
                     eprintln!(
-                        "\n\x1b[33mUpdate available: v{} → v{}\x1b[0m\n  Run: \x1b[1mtokensave upgrade\x1b[0m",
-                        current_version, latest
+                        "\n\x1b[33mUpdate available: v{} → v{}\x1b[0m\n  Run: \x1b[1m{}\x1b[0m",
+                        current_version, latest, upgrade_cmd
                     );
                     config.last_version_warning_at = now;
                     config.save();
@@ -1803,10 +1805,13 @@ fn check_for_update(
         tokensave::cloud::is_newer_minor_version(current_version, &latest)
     };
 
-    if dominated && (skip_suppression || now - config.last_version_warning_at >= 900) {
+    if dominated && (skip_suppression || now - config.last_version_warning_at >= 900)
+    {
+        let upgrade_cmd =
+            tokensave::cloud::upgrade_command(&tokensave::cloud::detect_install_method());
         eprintln!(
-            "\n\x1b[33mUpdate available: v{} → v{}\x1b[0m\n  Run: \x1b[1mtokensave upgrade\x1b[0m",
-            current_version, latest
+            "\n\x1b[33mUpdate available: v{} → v{}\x1b[0m\n  Run: \x1b[1m{}\x1b[0m",
+            current_version, latest, upgrade_cmd
         );
         if !skip_suppression {
             config.last_version_warning_at = now;

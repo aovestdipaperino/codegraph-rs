@@ -232,9 +232,10 @@ pub fn detect_install_method() -> InstallMethod {
 }
 
 /// Returns the upgrade command string.
-///
-/// Always suggests `tokensave upgrade` which handles all install methods
-/// and channels automatically.
-pub fn upgrade_command(_method: &InstallMethod) -> &'static str {
-    "tokensave upgrade"
+pub fn upgrade_command(method: &InstallMethod) -> &'static str {
+    match method {
+        InstallMethod::Cargo | InstallMethod::Unknown => "tokensave upgrade",
+        InstallMethod::Brew => "brew upgrade tokensave",
+        InstallMethod::Scoop => "scoop update tokensave",
+    }
 }

@@ -296,8 +296,23 @@ pub fn run_upgrade() -> Result<String> {
     let current = env!("CARGO_PKG_VERSION");
     let is_beta = cloud::is_beta();
     let channel = if is_beta { "beta" } else { "stable" };
+    let install_method = cloud::detect_install_method();
 
     eprintln!("Current version: v{current} ({channel} channel)");
+
+    match install_method {
+        cloud::InstallMethod::Brew | cloud::InstallMethod::Scoop => {
+            let upgrade_cmd = cloud::upgrade_command(&install_method);
+            return Err(TokenSaveError::Config {
+                message: format!(
+                    "self-update is not supported for this installation method.\n  \
+                     Upgrade with: {upgrade_cmd}"
+                ),
+            });
+        }
+        cloud::InstallMethod::Cargo | cloud::InstallMethod::Unknown => {}
+    }
+
     eprintln!("Checking for updates...");
 
     let latest = cloud::fetch_latest_version().ok_or_else(|| TokenSaveError::Config {
@@ -373,7 +388,8 @@ pub fn switch_channel(target_channel: &str) -> Result<String> {
 
     if target_is_beta == current_is_beta {
         eprintln!("Already on the {current_channel} channel (v{current}).");
-        eprintln!("Run `tokensave upgrade` to check for updates within this channel.");
+        let upgrade_cmd = cloud::upgrade_command(&cloud::detect_install_method());
+        eprintln!("Run `{upgrade_cmd}` to check for updates within this channel.");
         return Ok(current.to_string());
     }
 
