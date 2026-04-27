@@ -1188,7 +1188,10 @@ mod git_hook_tests {
 }
 
 pub fn tool_names() -> Vec<String> {
-    get_tool_definitions().iter().map(|t| t.name.clone()).collect()
+    get_tool_definitions()
+        .iter()
+        .map(|t| t.name.clone())
+        .collect()
 }
 
 pub fn expected_tool_perms() -> Vec<String> {
