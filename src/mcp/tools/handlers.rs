@@ -3535,12 +3535,12 @@ async fn handle_insert_at(cg: &TokenSave, args: Value) -> Result<ToolResult> {
             message: "missing required parameter: path".to_string(),
         })?;
 
-    let anchor = args
-        .get("anchor")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| TokenSaveError::Config {
-            message: "missing required parameter: anchor".to_string(),
-        })?;
+    let anchor =
+        args.get("anchor")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| TokenSaveError::Config {
+                message: "missing required parameter: anchor".to_string(),
+            })?;
 
     let content = args
         .get("content")

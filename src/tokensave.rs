@@ -1127,16 +1127,16 @@ impl TokenSave {
     /// Re-indexes a single file after an edit.
     async fn reindex_file(&self, file_path: &str) -> Result<()> {
         let abs_path = self.absolute_path(file_path);
-        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
-            TokenSaveError::Config {
-                message: format!("failed to read file {file_path}: {e}"),
-            }
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| TokenSaveError::Config {
+            message: format!("failed to read file {file_path}: {e}"),
         })?;
 
-        let extractor = self.registry.extractor_for_file(file_path)
-            .ok_or_else(|| TokenSaveError::Config {
-                message: format!("unsupported file type: {file_path}"),
-            })?;
+        let extractor =
+            self.registry
+                .extractor_for_file(file_path)
+                .ok_or_else(|| TokenSaveError::Config {
+                    message: format!("unsupported file type: {file_path}"),
+                })?;
 
         let mut result = extractor.extract(file_path, &source);
         result.sanitize();
@@ -1149,7 +1149,9 @@ impl TokenSave {
         self.db.insert_nodes(&result.nodes).await?;
         self.db.insert_edges(&result.edges).await?;
         if !result.unresolved_refs.is_empty() {
-            self.db.insert_unresolved_refs(&result.unresolved_refs).await?;
+            self.db
+                .insert_unresolved_refs(&result.unresolved_refs)
+                .await?;
         }
 
         let file_record = FileRecord {
@@ -1167,44 +1169,53 @@ impl TokenSave {
 
     /// Performs a single string replacement.
     /// Fails if `old_str` is not found or matches more than once.
-    pub async fn str_replace(&self, path: &str, old_str: &str, new_str: &str) -> Result<EditResult> {
-        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
-            message: "path is not within the project".to_string(),
-        })?;
+    pub async fn str_replace(
+        &self,
+        path: &str,
+        old_str: &str,
+        new_str: &str,
+    ) -> Result<EditResult> {
+        let rel_path = self
+            .resolve_path(path)
+            .ok_or_else(|| TokenSaveError::Config {
+                message: "path is not within the project".to_string(),
+            })?;
 
         let abs_path = self.absolute_path(&rel_path);
-        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
-            TokenSaveError::Config {
-                message: format!("failed to read {path}: {e}"),
-            }
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| TokenSaveError::Config {
+            message: format!("failed to read {path}: {e}"),
         })?;
 
         let matches: Vec<_> = source.match_indices(old_str).collect();
         match matches.len() {
-            0 => return Ok(EditResult {
-                success: false,
-                file_path: rel_path.clone(),
-                matched_str: old_str.to_string(),
-                new_str: new_str.to_string(),
-                message: format!("old_str not found in {path}"),
-            }),
+            0 => {
+                return Ok(EditResult {
+                    success: false,
+                    file_path: rel_path.clone(),
+                    matched_str: old_str.to_string(),
+                    new_str: new_str.to_string(),
+                    message: format!("old_str not found in {path}"),
+                })
+            }
             1 => {}
-            n => return Ok(EditResult {
-                success: false,
-                file_path: rel_path.clone(),
-                matched_str: old_str.to_string(),
-                new_str: new_str.to_string(),
-                message: format!("old_str matches {n} times, must match exactly once"),
-            }),
+            n => {
+                return Ok(EditResult {
+                    success: false,
+                    file_path: rel_path.clone(),
+                    matched_str: old_str.to_string(),
+                    new_str: new_str.to_string(),
+                    message: format!("old_str matches {n} times, must match exactly once"),
+                })
+            }
         }
 
         let modified = source.replacen(old_str, new_str, 1);
 
-        tokio::fs::write(&abs_path, &modified).await.map_err(|e| {
-            TokenSaveError::Config {
+        tokio::fs::write(&abs_path, &modified)
+            .await
+            .map_err(|e| TokenSaveError::Config {
                 message: format!("failed to write {path}: {e}"),
-            }
-        })?;
+            })?;
 
         self.reindex_file(&rel_path).await?;
 
@@ -1224,15 +1235,15 @@ impl TokenSave {
         path: &str,
         replacements: &[(&str, &str)],
     ) -> Result<MultiEditResult> {
-        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
-            message: "path is not within the project".to_string(),
-        })?;
+        let rel_path = self
+            .resolve_path(path)
+            .ok_or_else(|| TokenSaveError::Config {
+                message: "path is not within the project".to_string(),
+            })?;
 
         let abs_path = self.absolute_path(&rel_path);
-        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
-            TokenSaveError::Config {
-                message: format!("failed to read {path}: {e}"),
-            }
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| TokenSaveError::Config {
+            message: format!("failed to read {path}: {e}"),
         })?;
 
         for (old, _) in replacements {
@@ -1256,11 +1267,11 @@ impl TokenSave {
             modified = modified.replacen(old, new, 1);
         }
 
-        tokio::fs::write(&abs_path, &modified).await.map_err(|e| {
-            TokenSaveError::Config {
+        tokio::fs::write(&abs_path, &modified)
+            .await
+            .map_err(|e| TokenSaveError::Config {
                 message: format!("failed to write {path}: {e}"),
-            }
-        })?;
+            })?;
 
         self.reindex_file(&rel_path).await?;
 
@@ -1281,15 +1292,15 @@ impl TokenSave {
         content: &str,
         before: bool,
     ) -> Result<InsertResult> {
-        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
-            message: "path is not within the project".to_string(),
-        })?;
+        let rel_path = self
+            .resolve_path(path)
+            .ok_or_else(|| TokenSaveError::Config {
+                message: "path is not within the project".to_string(),
+            })?;
 
         let abs_path = self.absolute_path(&rel_path);
-        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
-            TokenSaveError::Config {
-                message: format!("failed to read {path}: {e}"),
-            }
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| TokenSaveError::Config {
+            message: format!("failed to read {path}: {e}"),
         })?;
 
         let lines: Vec<&str> = source.lines().collect();
@@ -1305,7 +1316,10 @@ impl TokenSave {
                     anchor_line: line_num as u32,
                     content: content.to_string(),
                     before,
-                    message: format!("line number {line_num} out of range (file has {} lines)", lines.len()),
+                    message: format!(
+                        "line number {line_num} out of range (file has {} lines)",
+                        lines.len()
+                    ),
                 });
             }
             line_num - 1
@@ -1334,7 +1348,10 @@ impl TokenSave {
                     anchor_line: matching_lines.len() as u32,
                     content: content.to_string(),
                     before,
-                    message: format!("anchor '{anchor}' matches {} lines, must match exactly one", matching_lines.len()),
+                    message: format!(
+                        "anchor '{anchor}' matches {} lines, must match exactly one",
+                        matching_lines.len()
+                    ),
                 });
             }
             matching_lines[0]
@@ -1346,11 +1363,11 @@ impl TokenSave {
         new_lines.extend_from_slice(&lines[insert_idx..]);
         let modified = new_lines.join("\n");
 
-        tokio::fs::write(&abs_path, &modified).await.map_err(|e| {
-            TokenSaveError::Config {
+        tokio::fs::write(&abs_path, &modified)
+            .await
+            .map_err(|e| TokenSaveError::Config {
                 message: format!("failed to write {path}: {e}"),
-            }
-        })?;
+            })?;
 
         self.reindex_file(&rel_path).await?;
 
@@ -1373,15 +1390,15 @@ impl TokenSave {
     ) -> Result<AstGrepResult> {
         use std::process::Command;
 
-        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
-            message: "path is not within the project".to_string(),
-        })?;
+        let rel_path = self
+            .resolve_path(path)
+            .ok_or_else(|| TokenSaveError::Config {
+                message: "path is not within the project".to_string(),
+            })?;
 
         let abs_path = self.absolute_path(&rel_path);
 
-        let check_output = Command::new("ast-grep")
-            .args(["--version"])
-            .output();
+        let check_output = Command::new("ast-grep").args(["--version"]).output();
 
         if check_output.is_err() {
             return Ok(AstGrepResult {
@@ -1389,12 +1406,21 @@ impl TokenSave {
                 file_path: rel_path.clone(),
                 pattern: pattern.to_string(),
                 rewrite: rewrite.to_string(),
-                message: "ast-grep is not installed. Install with: cargo install ast-grep".to_string(),
+                message: "ast-grep is not installed. Install with: cargo install ast-grep"
+                    .to_string(),
             });
         }
 
         let output = Command::new("ast-grep")
-            .args(["run", "-p", pattern, "-r", rewrite, "-d", abs_path.to_string_lossy().as_ref()])
+            .args([
+                "run",
+                "-p",
+                pattern,
+                "-r",
+                rewrite,
+                "-d",
+                abs_path.to_string_lossy().as_ref(),
+            ])
             .output()
             .map_err(|e| TokenSaveError::Config {
                 message: format!("failed to run ast-grep: {e}"),

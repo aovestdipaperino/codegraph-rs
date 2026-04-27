@@ -512,8 +512,11 @@ fn monitor_loop(
         for entry in entries.iter() {
             let project = &entry.project;
             let method = &entry.tool_name;
-            *grouped.entry(project.clone()).or_default().entry(method.clone()).or_default() +=
-                entry.delta;
+            *grouped
+                .entry(project.clone())
+                .or_default()
+                .entry(method.clone())
+                .or_default() += entry.delta;
         }
 
         let mut projects: Vec<String> = grouped.keys().cloned().collect();
@@ -523,7 +526,9 @@ fn monitor_loop(
         let mut grand_total: u64 = 0;
 
         for project in &projects {
-            let Some(methods) = grouped.get(project) else { continue };
+            let Some(methods) = grouped.get(project) else {
+                continue;
+            };
             let mut method_lines: Vec<String> = methods.keys().cloned().collect();
             method_lines.sort();
 
