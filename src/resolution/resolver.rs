@@ -61,7 +61,7 @@ pub struct ReferenceResolver<'a> {
     qualified_name_cache: HashMap<String, Vec<Node>>,
     /// Suffix index: maps every `::suffix` of a qualified name to the full
     /// qualified name(s). Enables O(1) suffix lookups instead of scanning
-    /// the entire qualified_name_cache.
+    /// the entire `qualified_name_cache`.
     suffix_cache: HashMap<String, Vec<String>>,
     /// All known symbol names (short + qualified + suffixes) for pre-filtering.
     known_names: HashSet<String>,
@@ -278,7 +278,7 @@ impl<'a> ReferenceResolver<'a> {
         }
 
         // Multiple candidates -- score them and pick the best.
-        let best = self.find_best_match(uref, candidates)?;
+        let best = Self::find_best_match(uref, candidates)?;
 
         Some(ResolvedRef {
             original: uref.clone(),
@@ -296,8 +296,8 @@ impl<'a> ReferenceResolver<'a> {
     /// - Same language: +50, cross-language: -80
     /// - Exported / pub visibility: +10
     /// - Callable kind (function/method) when the ref kind is `Calls`: +25
-    /// - Line proximity (same file only): +20 - (line_distance / 10)
-    fn find_best_match(&self, uref: &UnresolvedRef, candidates: &[Node]) -> Option<Node> {
+    /// - Line proximity (same file only): +20 - (`line_distance` / 10)
+    fn find_best_match(uref: &UnresolvedRef, candidates: &[Node]) -> Option<Node> {
         if candidates.is_empty() {
             return None;
         }

@@ -860,12 +860,10 @@ async fn run(cli: Cli) -> tokensave::errors::Result<()> {
             let mut changed: Vec<String> = files;
             if stdin {
                 let stdin_handle = io::stdin();
-                for line in stdin_handle.lock().lines() {
-                    if let Ok(line) = line {
-                        let trimmed = line.trim().to_string();
-                        if !trimmed.is_empty() {
-                            changed.push(trimmed);
-                        }
+                for line in stdin_handle.lock().lines().map_while(Result::ok) {
+                    let trimmed = line.trim().to_string();
+                    if !trimmed.is_empty() {
+                        changed.push(trimmed);
                     }
                 }
             }

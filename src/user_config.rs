@@ -46,7 +46,7 @@ pub struct UserConfig {
     #[serde(default)]
     pub last_version_warning_at: i64,
 
-    /// Agent integrations that have been installed (e.g. ["claude", "gemini"]).
+    /// Agent integrations that have been installed (e.g. `["claude", "gemini"]`).
     #[serde(default)]
     pub installed_agents: Vec<String>,
 
@@ -67,7 +67,7 @@ pub struct UserConfig {
     #[serde(default)]
     pub last_installed_version: String,
 
-    /// UNIX timestamp of last LiteLLM pricing fetch.
+    /// UNIX timestamp of last `LiteLLM` pricing fetch.
     #[serde(default)]
     pub last_pricing_fetch_at: i64,
 }

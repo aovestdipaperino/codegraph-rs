@@ -1,5 +1,5 @@
 // Rust guideline compliant 2025-10-17
-//! OpenAI Codex CLI agent integration.
+//! `OpenAI` Codex CLI agent integration.
 //!
 //! Handles registration of the tokensave MCP server in Codex's config
 //! file (`~/.codex/config.toml`), per-tool auto-approval settings,
@@ -15,7 +15,7 @@ use super::{
     HealthcheckContext, InstallContext,
 };
 
-/// OpenAI Codex CLI agent.
+/// `OpenAI` Codex CLI agent.
 pub struct CodexIntegration;
 
 impl AgentIntegration for CodexIntegration {
@@ -124,7 +124,7 @@ fn install_mcp_server(config_path: &Path, tokensave_bin: &str) -> Result<()> {
             "approval_mode".to_string(),
             toml::Value::String("auto".to_string()),
         );
-        tools_table.insert(tool_name.to_string(), toml::Value::Table(tool_config));
+        tools_table.insert(tool_name.clone(), toml::Value::Table(tool_config));
     }
     server_table.insert("tools".to_string(), toml::Value::Table(tools_table));
 
@@ -244,8 +244,7 @@ fn uninstall_prompt_rules(agents_md: &Path) {
     let after_marker = start + marker.len();
     let end = contents[after_marker..]
         .find("\n## ")
-        .map(|pos| after_marker + pos)
-        .unwrap_or(contents.len());
+        .map_or(contents.len(), |pos| after_marker + pos);
     let mut new_contents = String::new();
     new_contents.push_str(contents[..start].trim_end());
     let remainder = &contents[end..];
@@ -318,11 +317,10 @@ fn doctor_check_config(dc: &mut DoctorCounters, config_path: &Path) {
     let tools = tool_names();
     let tools_len = tools.len();
     if auto_count >= tools_len {
-        dc.pass(&format!("All {} tools set to auto-approve", tools_len));
+        dc.pass(&format!("All {tools_len} tools set to auto-approve"));
     } else if auto_count > 0 {
         dc.warn(&format!(
-            "{}/{} tools auto-approved — run `tokensave install --agent codex` to update",
-            auto_count, tools_len
+            "{auto_count}/{tools_len} tools auto-approved — run `tokensave install --agent codex` to update"
         ));
     } else {
         dc.warn("No tools auto-approved — Codex will prompt for each tool call");

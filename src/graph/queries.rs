@@ -335,7 +335,7 @@ impl<'a> GraphQueryManager<'a> {
             // Take the first parent in the containment hierarchy.
             match incoming.first() {
                 Some(edge) => {
-                    current_id = edge.source.clone();
+                    current_id.clone_from(&edge.source);
                     depth += 1;
                 }
                 None => break,

@@ -501,7 +501,7 @@ pub struct BuildContextOptions {
     pub traversal_depth: usize,
     pub min_score: f64,
     /// Additional keywords to search for beyond those extracted from the query.
-    /// Enables agent-driven synonym expansion (e.g. "authentication" → ["login", "session"]).
+    /// Enables agent-driven synonym expansion (e.g. `"authentication"` → `["login", "session"]`).
     pub extra_keywords: Vec<String>,
     /// Node IDs to exclude from results (for session deduplication across calls).
     pub exclude_node_ids: HashSet<String>,
@@ -554,7 +554,7 @@ pub struct TaskContext {
     pub entry_points: Vec<Node>,
     pub code_blocks: Vec<CodeBlock>,
     pub related_files: Vec<String>,
-    /// IDs of all nodes returned as entry points (pass to next call's exclude_node_ids for dedup).
+    /// IDs of all nodes returned as entry points (pass to next call's `exclude_node_ids` for dedup).
     pub seen_node_ids: Vec<String>,
 }
 
