@@ -886,10 +886,7 @@ fn doctor_check_permissions(dc: &mut DoctorCounters, settings: &serde_json::Valu
         .collect();
 
     if missing.is_empty() {
-        dc.pass(&format!(
-            "All {} tool permissions granted",
-            expected.len()
-        ));
+        dc.pass(&format!("All {} tool permissions granted", expected.len()));
     } else {
         dc.fail(&format!(
             "{} tool permission(s) missing — run `tokensave install`",
