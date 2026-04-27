@@ -1494,8 +1494,11 @@ async fn test_str_replace_success() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
-    fs::write(project.join("src/main.rs"), "fn hello() {}\nfn world() {}\n")
-        .unwrap();
+    fs::write(
+        project.join("src/main.rs"),
+        "fn hello() {}\nfn world() {}\n",
+    )
+    .unwrap();
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1584,7 +1587,10 @@ async fn test_str_replace_multiple_matches_fails() {
     let text = extract_text(&result.value);
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(parsed["success"], false);
-    assert!(parsed["message"].as_str().unwrap().contains("matches 2 times"));
+    assert!(parsed["message"]
+        .as_str()
+        .unwrap()
+        .contains("matches 2 times"));
 }
 
 #[tokio::test]
@@ -1593,8 +1599,11 @@ async fn test_multi_str_replace_success() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
-    fs::write(project.join("src/main.rs"), "fn foo() {}\nfn bar() {}\nfn baz() {}\n")
-        .unwrap();
+    fs::write(
+        project.join("src/main.rs"),
+        "fn foo() {}\nfn bar() {}\nfn baz() {}\n",
+    )
+    .unwrap();
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1656,7 +1665,10 @@ async fn test_multi_str_replace_atomic_failure() {
     let text = extract_text(&result.value);
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(parsed["success"], false);
-    assert!(parsed["message"].as_str().unwrap().contains("must match exactly once"));
+    assert!(parsed["message"]
+        .as_str()
+        .unwrap()
+        .contains("must match exactly once"));
 
     let content = fs::read_to_string(project.join("src/main.rs")).unwrap();
     assert!(content.contains("fn foo() {}"));
@@ -1670,7 +1682,11 @@ async fn test_insert_at_string_anchor_before() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
-    fs::write(project.join("src/main.rs"), "line one\nline two\nline three\n").unwrap();
+    fs::write(
+        project.join("src/main.rs"),
+        "line one\nline two\nline three\n",
+    )
+    .unwrap();
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1708,7 +1724,11 @@ async fn test_insert_at_line_number() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
-    fs::write(project.join("src/main.rs"), "line one\nline two\nline three\n").unwrap();
+    fs::write(
+        project.join("src/main.rs"),
+        "line one\nline two\nline three\n",
+    )
+    .unwrap();
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1779,7 +1799,11 @@ async fn test_insert_at_ambiguous_anchor() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
-    fs::write(project.join("src/main.rs"), "line foo\nline foo\nline bar\n").unwrap();
+    fs::write(
+        project.join("src/main.rs"),
+        "line foo\nline foo\nline bar\n",
+    )
+    .unwrap();
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1802,5 +1826,8 @@ async fn test_insert_at_ambiguous_anchor() {
     let text = extract_text(&result.value);
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(parsed["success"], false);
-    assert!(parsed["message"].as_str().unwrap().contains("matches 2 lines"));
+    assert!(parsed["message"]
+        .as_str()
+        .unwrap()
+        .contains("matches 2 lines"));
 }
