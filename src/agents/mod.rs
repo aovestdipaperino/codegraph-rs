@@ -1,5 +1,5 @@
 // Rust guideline compliant 2025-10-17
-//! Agent integration layer for CLI tools (Claude Code, OpenCode, Codex, etc.).
+//! Agent integration layer for CLI tools (Claude Code, `OpenCode`, Codex, etc.).
 //!
 //! Each supported agent implements the [`AgentIntegration`] trait which provides
 //! `install`, `uninstall`, and `healthcheck` operations. The MCP server
@@ -185,7 +185,7 @@ impl DoctorCounters {
 // ---------------------------------------------------------------------------
 
 /// Load a JSON file, returning an empty object on missing/invalid.
-/// Use this for **read-only** paths (healthcheck, has_tokensave, etc.).
+/// Use this for **read-only** paths (healthcheck, `has_tokensave`, etc.).
 /// For install/edit paths, use [`load_json_file_strict`] instead.
 pub fn load_json_file(path: &Path) -> serde_json::Value {
     if path.exists() {
@@ -560,9 +560,8 @@ fn remove_trailing_commas(input: &str) -> String {
 /// Use this for **read-only** paths. For install/edit paths, use
 /// [`load_jsonc_file_strict`] instead.
 pub fn load_jsonc_file(path: &Path) -> serde_json::Value {
-    let contents = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(_) => return serde_json::json!({}),
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return serde_json::json!({});
     };
     parse_jsonc(&contents)
 }

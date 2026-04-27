@@ -54,19 +54,18 @@ pub fn explore_call_budget(total_nodes: u64) -> u8 {
     }
 }
 
-/// Generates the tokensave_context description with a dynamic call budget.
+/// Generates the `tokensave_context` description with a dynamic call budget.
 pub fn context_description(node_count: u64, budget: u8) -> String {
     format!(
         "Build an AI-ready context for a task description. Returns relevant symbols, \
          relationships, and optionally code snippets.\n\n\
-         CALL BUDGET: {} calls maximum for this project ({} nodes). \
-         Stop after {} calls. If the question is not fully answered, synthesise \
-         from what you have — do not exceed the budget.",
-        budget, node_count, budget
+         CALL BUDGET: {budget} calls maximum for this project ({node_count} nodes). \
+         Stop after {budget} calls. If the question is not fully answered, synthesise \
+         from what you have — do not exceed the budget."
     )
 }
 
-/// Returns tool definitions with a dynamic call budget for tokensave_context.
+/// Returns tool definitions with a dynamic call budget for `tokensave_context`.
 pub fn get_tool_definitions_with_budget(node_count: u64, budget: u8) -> Vec<ToolDefinition> {
     let mut defs = get_tool_definitions();
     // Replace the context tool's description with the budgeted version

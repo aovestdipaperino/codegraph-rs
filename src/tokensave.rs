@@ -29,7 +29,7 @@ pub struct TokenSave {
     registry: LanguageRegistry,
     /// The active git branch (None if detached HEAD or not a git repo).
     active_branch: Option<String>,
-    /// The branch whose DB is actually being served (may differ from active_branch on fallback).
+    /// The branch whose DB is actually being served (may differ from `active_branch` on fallback).
     serving_branch: Option<String>,
     /// Set when serving from a fallback (ancestor) DB instead of the exact branch.
     fallback_warning: Option<String>,
@@ -81,10 +81,10 @@ pub fn current_timestamp() -> i64 {
 // ---------------------------------------------------------------------------
 
 impl TokenSave {
-    /// Initializes a new TokenSave project at the given root.
+    /// Initializes a new `TokenSave` project at the given root.
     ///
     /// Creates the `.tokensave` directory, writes a default configuration,
-    /// and initializes a fresh SQLite database.
+    /// and initializes a fresh `SQLite` database.
     pub async fn init(project_root: &Path) -> Result<Self> {
         let config = TokenSaveConfig {
             root_dir: project_root.to_string_lossy().to_string(),
@@ -115,7 +115,7 @@ impl TokenSave {
         })
     }
 
-    /// Opens an existing TokenSave project at the given root.
+    /// Opens an existing `TokenSave` project at the given root.
     ///
     /// If branch metadata exists, resolves the current git branch and opens
     /// the corresponding DB. Falls back to the nearest tracked ancestor DB
@@ -338,7 +338,7 @@ impl TokenSave {
         Some(meta.branches.keys().cloned().collect())
     }
 
-    /// Returns `true` if a TokenSave project has been initialized at the given root.
+    /// Returns `true` if a `TokenSave` project has been initialized at the given root.
     pub fn is_initialized(project_root: &Path) -> bool {
         get_tokensave_dir(project_root)
             .join("tokensave.db")
@@ -431,6 +431,7 @@ impl Drop for SyncLockGuard {
 /// error. Stale lockfiles (dead PID or unreadable content) are reclaimed
 /// automatically.
 fn try_acquire_sync_lock(project_root: &Path) -> Result<SyncLockGuard> {
+    use std::io::Write;
     let lock_path = get_tokensave_dir(project_root).join("sync.lock");
     let pid = std::process::id();
 
@@ -441,7 +442,6 @@ fn try_acquire_sync_lock(project_root: &Path) -> Result<SyncLockGuard> {
         .open(&lock_path)
     {
         Ok(mut f) => {
-            use std::io::Write;
             let _ = write!(f, "{pid}");
             return Ok(SyncLockGuard { path: lock_path });
         }
@@ -478,7 +478,6 @@ fn try_acquire_sync_lock(project_root: &Path) -> Result<SyncLockGuard> {
         .map_err(|e| TokenSaveError::SyncLock {
             message: format!("could not reclaim lockfile: {e}"),
         })?;
-    use std::io::Write;
     let _ = write!(f, "{pid}");
     Ok(SyncLockGuard { path: lock_path })
 }
@@ -492,8 +491,7 @@ fn is_pid_alive(pid: u32) -> bool {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+            .is_ok_and(|s| s.success())
     }
     #[cfg(windows)]
     {
@@ -570,7 +568,7 @@ impl TokenSave {
 
         // 2. Scan for source files
         let phase_start = Instant::now();
-        let files = self.scan_files()?;
+        let files = self.scan_files();
         let total = files.len();
         on_verbose(&format!(
             "scanned {} files in {:.1}s",
@@ -739,7 +737,7 @@ impl TokenSave {
 
         on_progress(0, 0, "scanning files");
         let phase_start = Instant::now();
-        let current_files = self.scan_files()?;
+        let current_files = self.scan_files();
         on_verbose(&format!(
             "scanned {} files in {:.1}s",
             current_files.len(),
@@ -845,12 +843,12 @@ impl TokenSave {
         for path in &stat_changed {
             if let Some(new_hash) = hash_map.get(path) {
                 if let Some(record) = db_map.get(path) {
-                    if record.content_hash != *new_hash {
-                        stale.push(path.clone());
-                    } else {
+                    if record.content_hash == *new_hash {
                         // mtime changed but content identical (e.g. touch) —
                         // update stored mtime so we skip it next time
                         mtime_only_changed.push(path.clone());
+                    } else {
+                        stale.push(path.clone());
                     }
                 }
             }
@@ -987,7 +985,7 @@ impl TokenSave {
     ///
     /// Supported extensions are derived from the `LanguageRegistry` so that
     /// adding a new extractor automatically picks up its files.
-    fn scan_files(&self) -> Result<Vec<String>> {
+    fn scan_files(&self) -> Vec<String> {
         debug_assert!(
             self.project_root.is_dir(),
             "scan_files: project_root is not a directory"
@@ -999,7 +997,7 @@ impl TokenSave {
         );
 
         if self.config.git_ignore {
-            let files = self.scan_files_with_gitignore(&supported_exts)?;
+            let files = self.scan_files_with_gitignore(&supported_exts);
             if files.is_empty() {
                 // The project directory may be gitignored by a parent repo,
                 // causing the ignore-aware walker to skip everything. Fall
@@ -1008,7 +1006,7 @@ impl TokenSave {
                     .follow_links(true)
                     .max_depth(2)
                     .into_iter()
-                    .filter_map(|e| e.ok())
+                    .filter_map(std::result::Result::ok)
                     .any(|e| {
                         e.file_type().is_file()
                             && e.path()
@@ -1021,14 +1019,14 @@ impl TokenSave {
                     return self.scan_files_walkdir(&supported_exts);
                 }
             }
-            Ok(files)
+            files
         } else {
             self.scan_files_walkdir(&supported_exts)
         }
     }
 
     /// Walk using `walkdir`, skipping hidden directories and `target/`.
-    fn scan_files_walkdir(&self, supported_exts: &[&str]) -> Result<Vec<String>> {
+    fn scan_files_walkdir(&self, supported_exts: &[&str]) -> Vec<String> {
         let mut files = Vec::new();
         for entry in WalkDir::new(&self.project_root)
             .follow_links(true)
@@ -1041,10 +1039,7 @@ impl TokenSave {
                 !name.starts_with('.') && name != "target"
             })
         {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -1052,12 +1047,12 @@ impl TokenSave {
                 files.push(rel_str);
             }
         }
-        Ok(files)
+        files
     }
 
     /// Walk using the `ignore` crate, which respects `.gitignore` rules,
     /// `.git/info/exclude`, and the user's global gitignore.
-    fn scan_files_with_gitignore(&self, supported_exts: &[&str]) -> Result<Vec<String>> {
+    fn scan_files_with_gitignore(&self, supported_exts: &[&str]) -> Vec<String> {
         let mut files = Vec::new();
         let walker = ignore::WalkBuilder::new(&self.project_root)
             .follow_links(true)
@@ -1068,10 +1063,7 @@ impl TokenSave {
             .build();
 
         for entry in walker {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             let Some(ft) = entry.file_type() else {
                 continue;
             };
@@ -1082,7 +1074,7 @@ impl TokenSave {
                 files.push(rel_str);
             }
         }
-        Ok(files)
+        files
     }
 
     /// Checks whether a file should be included: correct extension, not
@@ -1108,7 +1100,7 @@ impl TokenSave {
 
     /// Resolves a path to a relative path string.
     /// If the path is already relative, returns it as-is.
-    /// If absolute, strips the project_root prefix.
+    /// If absolute, strips the `project_root` prefix.
     fn resolve_path(&self, path: &str) -> Option<String> {
         let path = Path::new(path);
         if path.is_absolute() {
@@ -1579,7 +1571,7 @@ impl TokenSave {
         self.db.get_node_distribution(path_prefix).await
     }
 
-    /// Returns calls edges as (source_id, target_id) pairs for cycle detection.
+    /// Returns calls edges as (`source_id`, `target_id`) pairs for cycle detection.
     pub async fn get_call_edges(&self, path_prefix: Option<&str>) -> Result<Vec<(String, String)>> {
         self.db.get_call_edges(path_prefix).await
     }
@@ -1775,23 +1767,20 @@ impl TokenSave {
     /// Count git commits newer than the given UNIX timestamp.
     /// Returns 0 if git is unavailable or the directory is not a git repository.
     pub fn git_commits_since(&self, since_timestamp: i64) -> usize {
-        let repo = match gix::open(&self.project_root) {
-            Ok(r) => r,
-            Err(_) => return 0,
+        let Ok(repo) = gix::open(&self.project_root) else {
+            return 0;
         };
-        let head = match repo.head_commit() {
-            Ok(h) => h,
-            Err(_) => return 0,
+        let Ok(head) = repo.head_commit() else {
+            return 0;
         };
         let sorting = gix::revision::walk::Sorting::ByCommitTimeCutoff {
             order: gix::traverse::commit::simple::CommitTimeOrder::NewestFirst,
             seconds: since_timestamp,
         };
-        let walk = match head.ancestors().sorting(sorting).all() {
-            Ok(w) => w,
-            Err(_) => return 0,
+        let Ok(walk) = head.ancestors().sorting(sorting).all() else {
+            return 0;
         };
-        walk.filter_map(|r| r.ok()).count()
+        walk.filter_map(std::result::Result::ok).count()
     }
 }
 
