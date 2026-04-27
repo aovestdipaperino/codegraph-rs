@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 use crate::errors::Result;
 use crate::errors::TokenSaveError;
+use crate::mcp::tools::get_tool_definitions;
 
 pub use antigravity::AntigravityIntegration;
 pub use claude::ClaudeIntegration;
@@ -75,7 +76,7 @@ pub trait AgentIntegration {
 pub struct InstallContext {
     pub home: PathBuf,
     pub tokensave_bin: String,
-    pub tool_permissions: &'static [&'static str],
+    pub tool_permissions: Vec<String>,
 }
 
 /// Context passed to [`AgentIntegration::healthcheck`].
@@ -1186,67 +1187,16 @@ mod git_hook_tests {
     }
 }
 
-/// Bare MCP tool names (without any agent-specific prefix).
-pub const TOOL_NAMES: &[&str] = &[
-    "tokensave_affected",
-    "tokensave_callees",
-    "tokensave_callers",
-    "tokensave_changelog",
-    "tokensave_circular",
-    "tokensave_complexity",
-    "tokensave_context",
-    "tokensave_coupling",
-    "tokensave_dead_code",
-    "tokensave_diff_context",
-    "tokensave_distribution",
-    "tokensave_doc_coverage",
-    "tokensave_files",
-    "tokensave_god_class",
-    "tokensave_hotspots",
-    "tokensave_impact",
-    "tokensave_inheritance_depth",
-    "tokensave_largest",
-    "tokensave_module_api",
-    "tokensave_node",
-    "tokensave_rank",
-    "tokensave_recursion",
-    "tokensave_rename_preview",
-    "tokensave_search",
-    "tokensave_similar",
-    "tokensave_status",
-    "tokensave_unused_imports",
-];
+pub fn tool_names() -> Vec<String> {
+    get_tool_definitions().iter().map(|t| t.name.clone()).collect()
+}
 
-/// Expected MCP tool permissions for the current version (Claude Code format).
-pub const EXPECTED_TOOL_PERMS: &[&str] = &[
-    "mcp__tokensave__tokensave_affected",
-    "mcp__tokensave__tokensave_callees",
-    "mcp__tokensave__tokensave_callers",
-    "mcp__tokensave__tokensave_changelog",
-    "mcp__tokensave__tokensave_circular",
-    "mcp__tokensave__tokensave_complexity",
-    "mcp__tokensave__tokensave_context",
-    "mcp__tokensave__tokensave_coupling",
-    "mcp__tokensave__tokensave_dead_code",
-    "mcp__tokensave__tokensave_diff_context",
-    "mcp__tokensave__tokensave_distribution",
-    "mcp__tokensave__tokensave_doc_coverage",
-    "mcp__tokensave__tokensave_files",
-    "mcp__tokensave__tokensave_god_class",
-    "mcp__tokensave__tokensave_hotspots",
-    "mcp__tokensave__tokensave_impact",
-    "mcp__tokensave__tokensave_inheritance_depth",
-    "mcp__tokensave__tokensave_largest",
-    "mcp__tokensave__tokensave_module_api",
-    "mcp__tokensave__tokensave_node",
-    "mcp__tokensave__tokensave_rank",
-    "mcp__tokensave__tokensave_recursion",
-    "mcp__tokensave__tokensave_rename_preview",
-    "mcp__tokensave__tokensave_search",
-    "mcp__tokensave__tokensave_similar",
-    "mcp__tokensave__tokensave_status",
-    "mcp__tokensave__tokensave_unused_imports",
-];
+pub fn expected_tool_perms() -> Vec<String> {
+    get_tool_definitions()
+        .iter()
+        .map(|t| format!("mcp__tokensave__{}", t.name))
+        .collect()
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

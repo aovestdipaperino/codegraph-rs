@@ -11,8 +11,8 @@ use std::path::Path;
 use crate::errors::{Result, TokenSaveError};
 
 use super::{
-    load_toml_file, write_toml_file, AgentIntegration, DoctorCounters, HealthcheckContext,
-    InstallContext, TOOL_NAMES,
+    load_toml_file, tool_names, write_toml_file, AgentIntegration, DoctorCounters,
+    HealthcheckContext, InstallContext,
 };
 
 /// OpenAI Codex CLI agent.
@@ -118,7 +118,7 @@ fn install_mcp_server(config_path: &Path, tokensave_bin: &str) -> Result<()> {
 
     // Auto-approve all tokensave tools so Codex doesn't prompt for each one
     let mut tools_table = toml::map::Map::new();
-    for tool_name in TOOL_NAMES {
+    for tool_name in tool_names() {
         let mut tool_config = toml::map::Map::new();
         tool_config.insert(
             "approval_mode".to_string(),
@@ -315,16 +315,14 @@ fn doctor_check_config(dc: &mut DoctorCounters, config_path: &Path) {
             .count()
     });
 
-    if auto_count >= TOOL_NAMES.len() {
-        dc.pass(&format!(
-            "All {} tools set to auto-approve",
-            TOOL_NAMES.len()
-        ));
+    let tools = tool_names();
+    let tools_len = tools.len();
+    if auto_count >= tools_len {
+        dc.pass(&format!("All {} tools set to auto-approve", tools_len));
     } else if auto_count > 0 {
         dc.warn(&format!(
             "{}/{} tools auto-approved — run `tokensave install --agent codex` to update",
-            auto_count,
-            TOOL_NAMES.len()
+            auto_count, tools_len
         ));
     } else {
         dc.warn("No tools auto-approved — Codex will prompt for each tool call");

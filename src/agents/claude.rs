@@ -13,8 +13,8 @@ use serde_json::json;
 use crate::errors::{Result, TokenSaveError};
 
 use super::{
-    backup_config_file, load_json_file_strict, safe_write_json_file, write_json_file,
-    AgentIntegration, DoctorCounters, HealthcheckContext, InstallContext, EXPECTED_TOOL_PERMS,
+    backup_config_file, expected_tool_perms, load_json_file_strict, safe_write_json_file,
+    write_json_file, AgentIntegration, DoctorCounters, HealthcheckContext, InstallContext,
 };
 
 /// Claude Code agent.
@@ -41,7 +41,7 @@ impl AgentIntegration for ClaudeIntegration {
         let mut settings = load_json_file_strict(&settings_path)?;
         install_migrate_old_mcp(&mut settings, &settings_path);
         install_hook(&mut settings, &ctx.tokensave_bin);
-        install_permissions(&mut settings, ctx.tool_permissions);
+        install_permissions(&mut settings, &ctx.tool_permissions);
         write_json_file(&settings_path, &settings)?;
 
         install_claude_md_rules(&claude_md_path)?;
@@ -225,7 +225,7 @@ fn install_single_hook(
 }
 
 /// Add MCP tool permissions (idempotent).
-fn install_permissions(settings: &mut serde_json::Value, tool_permissions: &[&str]) {
+fn install_permissions(settings: &mut serde_json::Value, tool_permissions: &[String]) {
     let existing: Vec<String> = settings["permissions"]["allow"]
         .as_array()
         .map(|arr| {
@@ -236,8 +236,8 @@ fn install_permissions(settings: &mut serde_json::Value, tool_permissions: &[&st
         .unwrap_or_default();
     let mut allow: Vec<String> = existing;
     for tool in tool_permissions {
-        if !allow.iter().any(|e| e == *tool) {
-            allow.push(tool.to_string());
+        if !allow.iter().any(|e| e == tool) {
+            allow.push(tool.clone());
         }
     }
     allow.sort();
@@ -879,15 +879,16 @@ fn doctor_check_permissions(dc: &mut DoctorCounters, settings: &serde_json::Valu
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
         .unwrap_or_default();
 
-    let missing: Vec<&&str> = EXPECTED_TOOL_PERMS
+    let expected = expected_tool_perms();
+    let missing: Vec<&String> = expected
         .iter()
-        .filter(|p| !installed.contains(p))
+        .filter(|p| !installed.iter().any(|i| *i == p.as_str()))
         .collect();
 
     if missing.is_empty() {
         dc.pass(&format!(
             "All {} tool permissions granted",
-            EXPECTED_TOOL_PERMS.len()
+            expected.len()
         ));
     } else {
         dc.fail(&format!(
@@ -895,13 +896,13 @@ fn doctor_check_permissions(dc: &mut DoctorCounters, settings: &serde_json::Valu
             missing.len()
         ));
         for perm in &missing {
-            dc.info(&format!("missing: {}", perm));
+            dc.info(&format!("missing: {perm}"));
         }
     }
 
     let stale: Vec<&&str> = installed
         .iter()
-        .filter(|p| p.starts_with("mcp__tokensave__") && !EXPECTED_TOOL_PERMS.contains(p))
+        .filter(|p| p.starts_with("mcp__tokensave__") && !expected.contains(&p.to_string()))
         .collect();
     if !stale.is_empty() {
         dc.warn(&format!(
@@ -1120,9 +1121,10 @@ fn warn_missing_permissions(settings: &serde_json::Value) {
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
         .unwrap_or_default();
 
-    let missing_count = EXPECTED_TOOL_PERMS
+    let expected = expected_tool_perms();
+    let missing_count = expected
         .iter()
-        .filter(|p| !installed.contains(p))
+        .filter(|p| !installed.iter().any(|i| *i == p.as_str()))
         .count();
 
     if missing_count > 0 {
