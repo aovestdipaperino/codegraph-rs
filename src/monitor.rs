@@ -509,8 +509,6 @@ fn monitor_loop(
         }
 
         // ── Grouped log entries ──
-        use std::collections::HashMap;
-
         let mut grouped: HashMap<String, HashMap<String, u64>> = HashMap::new();
         for entry in entries.iter() {
             let project = &entry.project;
