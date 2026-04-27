@@ -1105,6 +1105,322 @@ impl TokenSave {
         }
         Some(rel_str)
     }
+
+    /// Resolves a path to a relative path string.
+    /// If the path is already relative, returns it as-is.
+    /// If absolute, strips the project_root prefix.
+    fn resolve_path(&self, path: &str) -> Option<String> {
+        let path = Path::new(path);
+        if path.is_absolute() {
+            let relative = path.strip_prefix(&self.project_root).ok()?;
+            Some(relative.to_string_lossy().replace('\\', "/"))
+        } else {
+            Some(path.to_string_lossy().replace('\\', "/"))
+        }
+    }
+
+    /// Gets the absolute path for a relative path.
+    fn absolute_path(&self, relative_path: &str) -> PathBuf {
+        self.project_root.join(relative_path)
+    }
+
+    /// Re-indexes a single file after an edit.
+    async fn reindex_file(&self, file_path: &str) -> Result<()> {
+        let abs_path = self.absolute_path(file_path);
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to read file {file_path}: {e}"),
+            }
+        })?;
+
+        let extractor = self.registry.extractor_for_file(file_path)
+            .ok_or_else(|| TokenSaveError::Config {
+                message: format!("unsupported file type: {file_path}"),
+            })?;
+
+        let mut result = extractor.extract(file_path, &source);
+        result.sanitize();
+
+        let hash = sync::content_hash(&source);
+        let size = source.len() as u64;
+        let mtime = sync::file_stat(&abs_path).map_or_else(current_timestamp, |(m, _)| m);
+
+        self.db.delete_nodes_by_file(file_path).await?;
+        self.db.insert_nodes(&result.nodes).await?;
+        self.db.insert_edges(&result.edges).await?;
+        if !result.unresolved_refs.is_empty() {
+            self.db.insert_unresolved_refs(&result.unresolved_refs).await?;
+        }
+
+        let file_record = FileRecord {
+            path: file_path.to_string(),
+            content_hash: hash,
+            size,
+            modified_at: mtime,
+            indexed_at: current_timestamp(),
+            node_count: result.nodes.len() as u32,
+        };
+        self.db.upsert_file(&file_record).await?;
+
+        Ok(())
+    }
+
+    /// Performs a single string replacement.
+    /// Fails if `old_str` is not found or matches more than once.
+    pub async fn str_replace(&self, path: &str, old_str: &str, new_str: &str) -> Result<EditResult> {
+        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
+            message: "path is not within the project".to_string(),
+        })?;
+
+        let abs_path = self.absolute_path(&rel_path);
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to read {path}: {e}"),
+            }
+        })?;
+
+        let matches: Vec<_> = source.match_indices(old_str).collect();
+        match matches.len() {
+            0 => return Ok(EditResult {
+                success: false,
+                file_path: rel_path.clone(),
+                matched_str: old_str.to_string(),
+                new_str: new_str.to_string(),
+                message: format!("old_str not found in {path}"),
+            }),
+            1 => {}
+            n => return Ok(EditResult {
+                success: false,
+                file_path: rel_path.clone(),
+                matched_str: old_str.to_string(),
+                new_str: new_str.to_string(),
+                message: format!("old_str matches {n} times, must match exactly once"),
+            }),
+        }
+
+        let modified = source.replacen(old_str, new_str, 1);
+
+        tokio::fs::write(&abs_path, &modified).await.map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to write {path}: {e}"),
+            }
+        })?;
+
+        self.reindex_file(&rel_path).await?;
+
+        Ok(EditResult {
+            success: true,
+            file_path: rel_path,
+            matched_str: old_str.to_string(),
+            new_str: new_str.to_string(),
+            message: "replacement successful".to_string(),
+        })
+    }
+
+    /// Applies multiple string replacements atomically.
+    /// Fails if any `old_str` doesn't match exactly once.
+    pub async fn multi_str_replace(
+        &self,
+        path: &str,
+        replacements: &[(&str, &str)],
+    ) -> Result<MultiEditResult> {
+        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
+            message: "path is not within the project".to_string(),
+        })?;
+
+        let abs_path = self.absolute_path(&rel_path);
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to read {path}: {e}"),
+            }
+        })?;
+
+        for (old, _) in replacements {
+            let count = source.matches(old).count();
+            if count != 1 {
+                return Ok(MultiEditResult {
+                    success: false,
+                    file_path: rel_path.clone(),
+                    applied_count: 0,
+                    message: format!(
+                        "replacement '{}' matches {} times, must match exactly once",
+                        if old.len() > 20 { &old[..20] } else { old },
+                        count
+                    ),
+                });
+            }
+        }
+
+        let mut modified = source;
+        for (old, new) in replacements {
+            modified = modified.replacen(old, new, 1);
+        }
+
+        tokio::fs::write(&abs_path, &modified).await.map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to write {path}: {e}"),
+            }
+        })?;
+
+        self.reindex_file(&rel_path).await?;
+
+        Ok(MultiEditResult {
+            success: true,
+            file_path: rel_path,
+            applied_count: replacements.len(),
+            message: format!("applied {} replacements", replacements.len()),
+        })
+    }
+
+    /// Inserts content before or after a unique anchor.
+    /// Anchor can be a string or 1-indexed line number.
+    pub async fn insert_at(
+        &self,
+        path: &str,
+        anchor: &str,
+        content: &str,
+        before: bool,
+    ) -> Result<InsertResult> {
+        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
+            message: "path is not within the project".to_string(),
+        })?;
+
+        let abs_path = self.absolute_path(&rel_path);
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to read {path}: {e}"),
+            }
+        })?;
+
+        let lines: Vec<&str> = source.lines().collect();
+
+        let anchor_line = if anchor.chars().all(|c| c.is_ascii_digit()) {
+            let line_num: usize = anchor.parse().map_err(|_| TokenSaveError::Config {
+                message: format!("invalid line number: {anchor}"),
+            })?;
+            if line_num == 0 || line_num > lines.len() {
+                return Ok(InsertResult {
+                    success: false,
+                    file_path: rel_path.clone(),
+                    anchor_line: line_num as u32,
+                    content: content.to_string(),
+                    before,
+                    message: format!("line number {line_num} out of range (file has {} lines)", lines.len()),
+                });
+            }
+            line_num - 1
+        } else {
+            let matching_lines: Vec<usize> = lines
+                .iter()
+                .enumerate()
+                .filter(|(_, line)| line.contains(&anchor[..anchor.len().min(100)]))
+                .map(|(i, _)| i)
+                .collect();
+
+            if matching_lines.is_empty() {
+                return Ok(InsertResult {
+                    success: false,
+                    file_path: rel_path.clone(),
+                    anchor_line: 0,
+                    content: content.to_string(),
+                    before,
+                    message: format!("anchor '{anchor}' not found"),
+                });
+            }
+            if matching_lines.len() > 1 {
+                return Ok(InsertResult {
+                    success: false,
+                    file_path: rel_path.clone(),
+                    anchor_line: matching_lines.len() as u32,
+                    content: content.to_string(),
+                    before,
+                    message: format!("anchor '{anchor}' matches {} lines, must match exactly one", matching_lines.len()),
+                });
+            }
+            matching_lines[0]
+        };
+
+        let insert_idx = if before { anchor_line } else { anchor_line + 1 };
+        let mut new_lines: Vec<&str> = lines[..insert_idx].to_vec();
+        new_lines.push(content);
+        new_lines.extend_from_slice(&lines[insert_idx..]);
+        let modified = new_lines.join("\n");
+
+        tokio::fs::write(&abs_path, &modified).await.map_err(|e| {
+            TokenSaveError::Config {
+                message: format!("failed to write {path}: {e}"),
+            }
+        })?;
+
+        self.reindex_file(&rel_path).await?;
+
+        Ok(InsertResult {
+            success: true,
+            file_path: rel_path,
+            anchor_line: (anchor_line + 1) as u32,
+            content: content.to_string(),
+            before,
+            message: format!("inserted at line {}", anchor_line + 1),
+        })
+    }
+
+    /// Performs structural rewrite using ast-grep CLI.
+    pub async fn ast_grep_rewrite(
+        &self,
+        path: &str,
+        pattern: &str,
+        rewrite: &str,
+    ) -> Result<AstGrepResult> {
+        use std::process::Command;
+
+        let rel_path = self.resolve_path(path).ok_or_else(|| TokenSaveError::Config {
+            message: "path is not within the project".to_string(),
+        })?;
+
+        let abs_path = self.absolute_path(&rel_path);
+
+        let check_output = Command::new("ast-grep")
+            .args(["--version"])
+            .output();
+
+        if check_output.is_err() {
+            return Ok(AstGrepResult {
+                success: false,
+                file_path: rel_path.clone(),
+                pattern: pattern.to_string(),
+                rewrite: rewrite.to_string(),
+                message: "ast-grep is not installed. Install with: cargo install ast-grep".to_string(),
+            });
+        }
+
+        let output = Command::new("ast-grep")
+            .args(["run", "-p", pattern, "-r", rewrite, "-d", abs_path.to_string_lossy().as_ref()])
+            .output()
+            .map_err(|e| TokenSaveError::Config {
+                message: format!("failed to run ast-grep: {e}"),
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Ok(AstGrepResult {
+                success: false,
+                file_path: rel_path.clone(),
+                pattern: pattern.to_string(),
+                rewrite: rewrite.to_string(),
+                message: format!("ast-grep failed: {stderr}"),
+            });
+        }
+
+        self.reindex_file(&rel_path).await?;
+
+        Ok(AstGrepResult {
+            success: true,
+            file_path: rel_path,
+            pattern: pattern.to_string(),
+            rewrite: rewrite.to_string(),
+            message: "ast-grep rewrite completed".to_string(),
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------

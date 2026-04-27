@@ -73,7 +73,8 @@ impl<'a> GraphQueryManager<'a> {
             return Ok(Vec::new());
         }
 
-        let placeholders: Vec<String> = (1..=candidate_ids.len()).map(|i| format!("?{i}")).collect();
+        let placeholders: Vec<String> =
+            (1..=candidate_ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
             "SELECT target FROM edges WHERE target IN ({}) LIMIT 1",
             placeholders.join(", ")
@@ -92,7 +93,8 @@ impl<'a> GraphQueryManager<'a> {
                 operation: "find_dead_code".to_string(),
             })?;
 
-        let mut nodes_with_incoming: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut nodes_with_incoming: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         while let Some(row) = rows.next().await.map_err(|e| TokenSaveError::Database {
             message: format!("failed to read row: {e}"),
             operation: "find_dead_code".to_string(),
@@ -102,10 +104,13 @@ impl<'a> GraphQueryManager<'a> {
             }
         }
 
-        let candidate_set: std::collections::HashSet<String> = candidate_ids.iter().cloned().collect();
+        let candidate_set: std::collections::HashSet<String> =
+            candidate_ids.iter().cloned().collect();
         let dead: Vec<Node> = nodes
             .into_iter()
-            .filter(|node| candidate_set.contains(&node.id) && !nodes_with_incoming.contains(&node.id))
+            .filter(|node| {
+                candidate_set.contains(&node.id) && !nodes_with_incoming.contains(&node.id)
+            })
             .collect();
 
         Ok(dead)
