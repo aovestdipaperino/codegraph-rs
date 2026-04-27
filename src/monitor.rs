@@ -505,32 +505,49 @@ fn monitor_loop(
             write!(stdout, "\r{}\r\n", sep)?;
         }
 
-        // ── Log entries (most recent at bottom of log area) ──
-        let visible: Vec<&MonitorEntry> = entries
-            .iter()
-            .rev()
-            .take(log_lines)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        let blank_lines = log_lines.saturating_sub(visible.len());
+        // ── Grouped log entries ──
+        use std::collections::HashMap;
+
+        let mut grouped: HashMap<String, HashMap<String, u64>> = HashMap::new();
+        for entry in entries.iter() {
+            let project = &entry.project;
+            let method = &entry.tool_name;
+            *grouped.entry(project.clone()).or_default().entry(method.clone()).or_default() +=
+                entry.delta;
+        }
+
+        let mut projects: Vec<String> = grouped.keys().cloned().collect();
+        projects.sort();
+
+        let mut all_lines: Vec<String> = Vec::new();
+        let mut grand_total: u64 = 0;
+
+        for project in &projects {
+            let Some(methods) = grouped.get(project) else { continue };
+            let mut method_lines: Vec<String> = methods.keys().cloned().collect();
+            method_lines.sort();
+
+            let project_total: u64 = methods.values().sum::<u64>();
+            grand_total += project_total;
+
+            all_lines.push(format!("{} ({})", project, format_number(project_total)));
+            for method in &method_lines {
+                let delta = *methods.get(method).unwrap_or(&0);
+                all_lines.push(format!("  {}  {}", method, format_number(delta)));
+            }
+        }
+        all_lines.push(format!("TOTAL  {}", format_number(grand_total)));
+
+        let visible_lines: Vec<&String> = all_lines.iter().rev().take(log_lines).collect();
+        let blank_lines = log_lines.saturating_sub(visible_lines.len());
 
         for _ in 0..blank_lines {
             write!(stdout, "\r{}\r\n", " ".repeat(w))?;
         }
 
-        for entry in &visible {
-            let label = entry.label();
-            let delta_str = format_number(entry.delta);
-            let padding = w.saturating_sub(label.len() + delta_str.len() + 2);
-            write!(
-                stdout,
-                "\r{}{}{}\r\n",
-                label,
-                " ".repeat(padding),
-                delta_str
-            )?;
+        for line in visible_lines.into_iter().rev() {
+            let padding = w.saturating_sub(line.len());
+            write!(stdout, "\r{}{}\r\n", line, " ".repeat(padding))?;
         }
 
         // ── Footer ──
