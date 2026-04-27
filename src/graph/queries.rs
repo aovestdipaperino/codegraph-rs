@@ -136,7 +136,6 @@ impl<'a> GraphQueryManager<'a> {
             let node = row_to_node_dead_code(&row)?;
             dead.push(node);
         }
-
         Ok(dead)
     }
 

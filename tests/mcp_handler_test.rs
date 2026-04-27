@@ -1665,10 +1665,14 @@ async fn test_multi_str_replace_atomic_failure() {
     let text = extract_text(&result.value);
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(parsed["success"], false);
+<<<<<<< HEAD
     assert!(parsed["message"]
         .as_str()
         .unwrap()
         .contains("must match exactly once"));
+=======
+    assert!(parsed["message"].as_str().unwrap().contains("must match exactly once"));
+>>>>>>> 38051fc (added 3 new editor commands: str_replace, multi_str_replace, insert_at, ast_grep_rewrite)
 
     let content = fs::read_to_string(project.join("src/main.rs")).unwrap();
     assert!(content.contains("fn foo() {}"));
@@ -1682,11 +1686,15 @@ async fn test_insert_at_string_anchor_before() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
+<<<<<<< HEAD
     fs::write(
         project.join("src/main.rs"),
         "line one\nline two\nline three\n",
     )
     .unwrap();
+=======
+    fs::write(project.join("src/main.rs"), "line one\nline two\nline three\n").unwrap();
+>>>>>>> 38051fc (added 3 new editor commands: str_replace, multi_str_replace, insert_at, ast_grep_rewrite)
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1724,11 +1732,15 @@ async fn test_insert_at_line_number() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
+<<<<<<< HEAD
     fs::write(
         project.join("src/main.rs"),
         "line one\nline two\nline three\n",
     )
     .unwrap();
+=======
+    fs::write(project.join("src/main.rs"), "line one\nline two\nline three\n").unwrap();
+>>>>>>> 38051fc (added 3 new editor commands: str_replace, multi_str_replace, insert_at, ast_grep_rewrite)
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1799,11 +1811,15 @@ async fn test_insert_at_ambiguous_anchor() {
     let project = dir.path();
     fs::create_dir_all(project.join("src")).unwrap();
 
+<<<<<<< HEAD
     fs::write(
         project.join("src/main.rs"),
         "line foo\nline foo\nline bar\n",
     )
     .unwrap();
+=======
+    fs::write(project.join("src/main.rs"), "line foo\nline foo\nline bar\n").unwrap();
+>>>>>>> 38051fc (added 3 new editor commands: str_replace, multi_str_replace, insert_at, ast_grep_rewrite)
 
     let cg = TokenSave::init(project).await.unwrap();
     cg.index_all().await.unwrap();
@@ -1826,8 +1842,12 @@ async fn test_insert_at_ambiguous_anchor() {
     let text = extract_text(&result.value);
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(parsed["success"], false);
+<<<<<<< HEAD
     assert!(parsed["message"]
         .as_str()
         .unwrap()
         .contains("matches 2 lines"));
+=======
+    assert!(parsed["message"].as_str().unwrap().contains("matches 2 lines"));
+>>>>>>> 38051fc (added 3 new editor commands: str_replace, multi_str_replace, insert_at, ast_grep_rewrite)
 }
