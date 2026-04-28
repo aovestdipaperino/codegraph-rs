@@ -706,6 +706,131 @@ impl TokenSave {
         self.sync_with_progress_verbose(on_progress, |_| {}).await
     }
 
+    /// Sync only the specified files if they are stale, then recheck.
+    ///
+    /// Returns `Ok(false)` if all files are now in sync after the call.
+    /// Returns `Ok(true)` if files are still stale after sync (either sync
+    /// didn't update these specific files, or sync failed to acquire lock).
+    /// Returns `Err` on sync failure.
+    pub async fn sync_if_stale(&self, stale_files: &[String]) -> Result<bool> {
+        if stale_files.is_empty() {
+            return Ok(false);
+        }
+
+        // Quick check: are these files still stale before we even try to sync?
+        let still_stale_before = self.check_file_staleness(stale_files).await;
+        if still_stale_before.is_empty() {
+            return Ok(false);
+        }
+
+        // Try to acquire sync lock and do an incremental sync.
+        // The full sync will pick up any changed files, including our stale ones.
+        let Ok(lock) = try_acquire_sync_lock(&self.project_root) else {
+            // Another sync is in progress (likely daemon) — let caller warn
+            return Ok(true);
+        };
+
+        // Do a minimal sync focused on changed files
+        let result = self.sync_single_files(stale_files).await;
+
+        // Release lock
+        drop(lock);
+
+        match result {
+            Ok(()) => {
+                // Recheck if our files are still stale
+                let still_stale_after = self.check_file_staleness(stale_files).await;
+                Ok(!still_stale_after.is_empty())
+            }
+            Err(_) => Ok(true), // Sync failed — warn caller
+        }
+    }
+
+    /// Index/reexamine the given file paths, updating their graph nodes and edges.
+    /// This is a focused, single-shot operation used by `sync_if_stale`.
+    async fn sync_single_files(&self, file_paths: &[String]) -> Result<()> {
+        use crate::sync as sync_mod;
+
+        let project_root = &self.project_root;
+        let registry = &self.registry;
+
+        // Read and hash the files
+        let mut hash_map: HashMap<String, String> = HashMap::new();
+        let mut stat_map: HashMap<String, (i64, u64)> = HashMap::new();
+
+        for path in file_paths {
+            let abs_path = project_root.join(path);
+            if let Some((mtime, size)) = sync_mod::file_stat(&abs_path) {
+                stat_map.insert(path.clone(), (mtime, size));
+            }
+            if let Ok(source) = sync_mod::read_source_file(&abs_path) {
+                let hash = sync_mod::content_hash(&source);
+                hash_map.insert(path.clone(), hash);
+            }
+        }
+
+        // Extract graph data from the files in parallel
+        let sync_extractions: Vec<_> = file_paths
+            .par_iter()
+            .filter_map(|file_path| {
+                let abs_path = project_root.join(file_path);
+                let source = sync_mod::read_source_file(&abs_path).ok()?;
+                let extractor = registry.extractor_for_file(file_path)?;
+                let mut result = extractor.extract(file_path, &source);
+                result.sanitize();
+                let hash = sync_mod::content_hash(&source);
+                let size = source.len() as u64;
+                let mtime = stat_map
+                    .get(file_path)
+                    .copied()
+                    .map_or_else(current_timestamp, |(m, _)| m);
+                Some((file_path.clone(), result, hash, size, mtime))
+            })
+            .collect();
+
+        // Insert into database
+        for (file_path, result, hash, size, mtime) in &sync_extractions {
+            self.db.delete_nodes_by_file(file_path).await?;
+            self.db.insert_nodes(&result.nodes).await?;
+            self.db.insert_edges(&result.edges).await?;
+            if !result.unresolved_refs.is_empty() {
+                self.db
+                    .insert_unresolved_refs(&result.unresolved_refs)
+                    .await?;
+            }
+
+            let file_record = FileRecord {
+                path: (*file_path).clone(),
+                content_hash: (*hash).clone(),
+                size: *size,
+                modified_at: *mtime,
+                indexed_at: current_timestamp(),
+                node_count: result.nodes.len() as u32,
+            };
+            self.db.upsert_file(&file_record).await?;
+        }
+
+        // Resolve references for any new/changed unresolved refs
+        if !file_paths.is_empty() {
+            let resolver = ReferenceResolver::new(&self.db).await;
+            let unresolved = self.db.get_unresolved_refs().await?;
+            if !unresolved.is_empty() {
+                let resolution = resolver.resolve_all(&unresolved);
+                let edges = resolver.create_edges(&resolution.resolved);
+                if !edges.is_empty() {
+                    self.db.insert_edges(&edges).await?;
+                }
+            }
+        }
+
+        self.db
+            .set_metadata("last_sync_at", &current_timestamp().to_string())
+            .await?;
+
+        clear_dirty_sentinel(&self.project_root);
+        Ok(())
+    }
+
     /// Like `sync()`, but calls `on_progress` with a description and the
     /// current step for each phase of work, and `on_verbose` after each phase
     /// completes with a diagnostic summary line (count + timing).

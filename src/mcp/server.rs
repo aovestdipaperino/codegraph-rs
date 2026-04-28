@@ -797,20 +797,30 @@ impl McpServer {
                 }
 
                 // Check per-file staleness for files touched by this tool call.
+                // If stale files exist, attempt an incremental sync first to keep
+                // the index up-to-date before returning the response.
                 if !result.touched_files.is_empty() {
                     let stale_files = self.cg.check_file_staleness(&result.touched_files).await;
                     if !stale_files.is_empty() {
-                        let warning = format!(
-                            "WARNING: STALE INDEX — {} file(s) modified since last sync: {}. Run `tokensave sync` to update.",
-                            stale_files.len(),
-                            stale_files.join(", ")
-                        );
-                        if let Some(content) = result
-                            .value
-                            .get_mut("content")
-                            .and_then(|c| c.as_array_mut())
-                        {
-                            content.insert(0, json!({"type": "text", "text": &warning}));
+                        // Try to sync before responding. If sync fails (e.g., lock
+                        // held by another process), we still warn the user.
+                        let still_stale = match self.cg.sync_if_stale(&stale_files).await {
+                            Ok(false) => false,        // Sync completed and files are no longer stale
+                            Ok(true) | Err(_) => true, // Files still stale or sync failed
+                        };
+                        if still_stale {
+                            let warning = format!(
+                                "WARNING: STALE INDEX — {} file(s) modified since last sync: {}. Run `tokensave sync` to update.",
+                                stale_files.len(),
+                                stale_files.join(", ")
+                            );
+                            if let Some(content) = result
+                                .value
+                                .get_mut("content")
+                                .and_then(|c| c.as_array_mut())
+                            {
+                                content.insert(0, json!({"type": "text", "text": &warning}));
+                            }
                         }
                     }
                 }
