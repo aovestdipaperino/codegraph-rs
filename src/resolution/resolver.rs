@@ -286,7 +286,6 @@ impl<'a> ReferenceResolver<'a> {
             });
         }
 
-        // Multiple candidates -- score them and pick the best.
         let best = Self::find_best_match(uref, candidates)?;
 
         Some(ResolvedRef {
