@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`TOOL_NAMES` and `EXPECTED_TOOL_PERMS` were static** — `doctor` and `install` would not detect or register newly-introduced MCP tools. Both lists are now built dynamically so adding a tool automatically propagates to health checks and permission installation. (PR #43 by @pierreaubert)
 - **`tokensave monitor` now groups output per project then per tool** — previously all tool calls were listed in a flat stream; entries are now grouped by project path first, then by tool name, making it easier to see which project is driving activity. (PR #43 by @pierreaubert)
 
+### Fixed
+
+- **Fixed** _dead_code for large codebase.
+
 ## [4.1.4] - 2026-04-25
 
 ### Fixed
