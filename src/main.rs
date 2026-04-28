@@ -283,6 +283,9 @@ enum Commands {
         /// Remove autostart service
         #[arg(long)]
         disable_autostart: bool,
+        /// Override debounce duration (e.g. "2s", "15s", "1m"). Overrides config.
+        #[arg(long)]
+        debounce: Option<String>,
     },
     /// Token cost summary from Claude Code sessions
     Cost {
@@ -1180,6 +1183,7 @@ async fn run(cli: Cli) -> tokensave::errors::Result<()> {
             status,
             enable_autostart,
             disable_autostart,
+            debounce,
         } => {
             if stop {
                 tokensave::daemon::stop()?;
@@ -1191,7 +1195,7 @@ async fn run(cli: Cli) -> tokensave::errors::Result<()> {
             } else if disable_autostart {
                 tokensave::daemon::disable_autostart()?;
             } else {
-                let upgraded = tokensave::daemon::run(foreground).await?;
+                let upgraded = tokensave::daemon::run(foreground, debounce).await?;
                 if upgraded {
                     // Exit with non-zero code so the service manager (launchd
                     // KeepAlive / systemd Restart=on-failure / Windows SCM

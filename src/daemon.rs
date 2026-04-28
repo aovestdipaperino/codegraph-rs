@@ -447,11 +447,15 @@ fn daemon_log(msg: &str) {
 /// Returns `true` if the daemon exited due to an upgrade (binary changed on
 /// disk). The caller should exit with a non-zero code so the service manager
 /// restarts with the new version.
-pub async fn run(foreground: bool) -> Result<bool> {
+pub async fn run(foreground: bool, debounce_override: Option<String>) -> Result<bool> {
     let daemon = build_daemon()?;
 
     let config = crate::user_config::UserConfig::load();
-    let debounce = parse_duration(&config.daemon_debounce).unwrap_or(Duration::from_secs(15));
+    let debounce = if let Some(ref override_str) = debounce_override {
+        parse_duration(override_str).unwrap_or(Duration::from_secs(2))
+    } else {
+        parse_duration(&config.daemon_debounce).unwrap_or(Duration::from_secs(2))
+    };
 
     if foreground {
         // Already inside a tokio runtime — call run_loop directly.
