@@ -100,7 +100,8 @@ impl<'a> GraphQueryManager<'a> {
         let kind_filter = if kinds.is_empty() {
             String::new()
         } else {
-            let kind_strs: Vec<String> = kinds.iter().map(|k| format!("'{}'", k.as_str())).collect();
+            let kind_strs: Vec<String> =
+                kinds.iter().map(|k| format!("'{}'", k.as_str())).collect();
             format!(" AND kind IN ({})", kind_strs.join(", "))
         };
 
@@ -117,15 +118,15 @@ impl<'a> GraphQueryManager<'a> {
              AND NOT EXISTS (SELECT 1 FROM edges WHERE target = nodes.id)"
         );
 
-        let mut rows = self
-            .db
-            .conn()
-            .query(&sql, ())
-            .await
-            .map_err(|e| TokenSaveError::Database {
-                message: format!("failed to find dead code: {e}"),
-                operation: "find_dead_code".to_string(),
-            })?;
+        let mut rows =
+            self.db
+                .conn()
+                .query(&sql, ())
+                .await
+                .map_err(|e| TokenSaveError::Database {
+                    message: format!("failed to find dead code: {e}"),
+                    operation: "find_dead_code".to_string(),
+                })?;
 
         let mut dead = Vec::new();
         while let Some(row) = rows.next().await.map_err(|e| TokenSaveError::Database {
