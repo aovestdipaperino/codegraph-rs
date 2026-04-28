@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Fixed** _dead_code for large codebase.
 
+### Fixed
+
+- **Fixed** _dead_code for large codebase.
+
 ## [4.1.4] - 2026-04-25
 
 ### Fixed
