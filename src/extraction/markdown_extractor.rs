@@ -1,30 +1,52 @@
-/// Markdown source code extractor.
+/// Tree-sitter based Markdown source code extractor.
 ///
 /// Parses Markdown source files and emits nodes and edges for the code graph.
-/// Uses line-based parsing rather than tree-sitter since markdown is simple.
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use tree_sitter::{Node as TsNode, Parser, Tree};
 
 use crate::types::{
     generate_node_id, Edge, EdgeKind, ExtractionResult, Node, NodeKind, Visibility,
 };
 
-/// Extracts code graph nodes and edges from Markdown source files.
 pub struct MarkdownExtractor;
 
-impl MarkdownExtractor {
-    /// Extract code graph nodes and edges from a Markdown source file.
-    pub fn extract_markdown(file_path: &str, source: &str) -> ExtractionResult {
-        let start = std::time::Instant::now();
+struct ExtractionState {
+    nodes: Vec<Node>,
+    edges: Vec<Edge>,
+    file_path: String,
+    source: Vec<u8>,
+    timestamp: u64,
+    node_stack: Vec<(String, String, usize)>,
+}
+
+impl ExtractionState {
+    fn new(file_path: &str, source: &str) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        Self {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            file_path: file_path.to_string(),
+            source: source.as_bytes().to_vec(),
+            timestamp,
+            node_stack: Vec::new(),
+        }
+    }
 
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        let errors = Vec::new();
+    fn node_text(&self, node: TsNode<'_>) -> String {
+        node.utf8_text(&self.source)
+            .unwrap_or("<invalid utf8>")
+            .to_string()
+    }
+}
 
-        let mut node_stack: Vec<(String, String)> = Vec::new();
+impl MarkdownExtractor {
+    pub fn extract_markdown(file_path: &str, source: &str) -> ExtractionResult {
+        let start = Instant::now();
+        let mut state = ExtractionState::new(file_path, source);
 
         let file_node = Node {
             id: generate_node_id(file_path, &NodeKind::File, file_path, 0),
@@ -47,170 +69,208 @@ impl MarkdownExtractor {
             unsafe_blocks: 0,
             unchecked_calls: 0,
             assertions: 0,
-            updated_at: timestamp,
+            updated_at: state.timestamp,
         };
         let file_node_id = file_node.id.clone();
-        nodes.push(file_node);
-        node_stack.push((file_path.to_string(), file_node_id));
+        state.nodes.push(file_node);
+        state
+            .node_stack
+            .push((file_path.to_string(), file_node_id, 0));
 
-        for (line_idx, line) in source.lines().enumerate() {
-            let line_num = line_idx as u32;
-            let trimmed = line.trim();
-
-            if let Some((level, title)) = parse_header(trimmed) {
-                while node_stack.len() > 1 {
-                    let last_name = &node_stack[node_stack.len() - 1].0;
-                    if get_header_level(last_name) >= level {
-                        node_stack.pop();
-                    } else {
-                        break;
-                    }
-                }
-
-                let kind = NodeKind::Module;
-                let parent_name = &node_stack[node_stack.len() - 1].0;
-                let qualified_name = format!("{parent_name}::{title}");
-                let id = generate_node_id(file_path, &kind, title, line_num);
-
-                let node = Node {
-                    id: id.clone(),
-                    kind,
-                    name: title.to_string(),
-                    qualified_name: qualified_name.clone(),
-                    file_path: file_path.to_string(),
-                    start_line: line_num,
-                    end_line: line_num,
-                    start_column: 0,
-                    end_column: line.len() as u32,
-                    signature: Some(format!("{} {}", "#".repeat(level), title)),
-                    docstring: None,
-                    visibility: Visibility::Pub,
-                    is_async: false,
-                    branches: 0,
-                    loops: 0,
-                    returns: 0,
-                    max_nesting: 0,
-                    unsafe_blocks: 0,
-                    unchecked_calls: 0,
-                    assertions: 0,
-                    updated_at: timestamp,
-                };
-
-                if let Some((_, parent_id)) = node_stack.last() {
-                    edges.push(Edge {
-                        source: parent_id.clone(),
-                        target: id.clone(),
-                        kind: EdgeKind::Contains,
-                        line: Some(line_num),
-                    });
-                }
-
-                nodes.push(node);
-                node_stack.push((title.to_string(), id));
+        match Self::parse_source(source) {
+            Ok(tree) => {
+                let root = tree.root_node();
+                Self::visit_children(&mut state, root);
             }
-
-            for (link_text, link_url) in extract_links(line) {
-                if link_url.starts_with("http://") || link_url.starts_with("https://") {
-                    continue;
-                }
-
-                let target_path = link_url.trim_start_matches("file:");
-                let target_ext = target_path.rsplit('.').next().unwrap_or("");
-
-                if !is_code_extension(target_ext) {
-                    continue;
-                }
-
-                let target_id = generate_node_id(target_path, &NodeKind::Use, link_text, 0);
-
-                if let Some((_, parent_id)) = node_stack.last() {
-                    edges.push(Edge {
-                        source: parent_id.clone(),
-                        target: target_id,
-                        kind: EdgeKind::Uses,
-                        line: Some(line_num),
-                    });
-                }
+            Err(_msg) => {
+                state.edges.push(Edge {
+                    source: state.node_stack[0].1.clone(),
+                    target: state.node_stack[0].1.clone(),
+                    kind: EdgeKind::Contains,
+                    line: Some(0),
+                });
             }
         }
 
+        state.node_stack.pop();
+
         ExtractionResult {
-            nodes,
-            edges,
+            nodes: state.nodes,
+            edges: state.edges,
             unresolved_refs: Vec::new(),
-            errors,
+            errors: Vec::new(),
             duration_ms: start.elapsed().as_millis() as u64,
         }
     }
-}
 
-fn parse_header(line: &str) -> Option<(usize, &str)> {
-    if !line.starts_with('#') {
-        return None;
+    fn parse_source(source: &str) -> Result<Tree, String> {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_markdown_fork::language())
+            .map_err(|e| format!("failed to load markdown grammar: {e}"))?;
+        parser
+            .parse(source, None)
+            .ok_or_else(|| "tree-sitter parse returned None".to_string())
     }
-    let level = line.chars().take_while(|c| *c == '#').count();
-    if level == 0 || level > 6 {
-        return None;
-    }
-    let title = line[level..].trim();
-    if title.is_empty() {
-        return None;
-    }
-    Some((level, title))
-}
 
-fn extract_links(line: &str) -> Vec<(&str, &str)> {
-    let mut links = Vec::new();
-    let mut i = 0;
-    let bytes = line.as_bytes();
-
-    while i < bytes.len() {
-        if bytes[i] == b'[' {
-            let text_start = i + 1;
-            let mut text_end = text_start;
-            while text_end < bytes.len() && bytes[text_end] != b']' {
-                text_end += 1;
+    fn visit_children(state: &mut ExtractionState, node: TsNode<'_>) {
+        let mut cursor = node.walk();
+        if cursor.goto_first_child() {
+            loop {
+                let child = cursor.node();
+                Self::visit_node(state, child);
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
             }
-            if text_end >= bytes.len() || bytes[text_end] != b']' {
-                i += 1;
-                continue;
-            }
-            if text_end + 1 >= bytes.len() || bytes[text_end + 1] != b'(' {
-                i += 1;
-                continue;
-            }
-            let url_start = text_end + 2;
-            let mut url_end = url_start;
-            while url_end < bytes.len() && bytes[url_end] != b')' {
-                url_end += 1;
-            }
-            if url_end >= bytes.len() || bytes[url_end] != b')' {
-                i += 1;
-                continue;
-            }
-
-            let text = &line[text_start..text_end];
-            let url = &line[url_start..url_end];
-            links.push((text, url));
-
-            i = url_end + 1;
-        } else {
-            i += 1;
         }
     }
 
-    links
-}
+    fn visit_node(state: &mut ExtractionState, node: TsNode<'_>) {
+        let kind = node.kind();
+        match kind {
+            "atx_heading" => {
+                Self::visit_heading(state, node);
+            }
+            "link" => {
+                Self::visit_link(state, node);
+            }
+            _ => {
+                Self::visit_children(state, node);
+            }
+        }
+    }
 
-fn get_header_level(name: &str) -> usize {
-    name.chars().take_while(|c| *c == '#').count().max(1)
+    fn visit_heading(state: &mut ExtractionState, node: TsNode<'_>) {
+        let marker = node
+            .children(&mut node.walk())
+            .find(|n| n.kind().starts_with("atx_h") && n.kind().contains("_marker"));
+        let level = marker
+            .as_ref()
+            .map_or(1, |m| {
+                let kind = m.kind();
+                let parts: Vec<&str> = kind.split('_').collect();
+                if parts.len() >= 2 {
+                    parts[1]
+                        .trim_start_matches('h')
+                        .parse::<usize>()
+                        .unwrap_or(1)
+                } else {
+                    1
+                }
+            })
+            .min(6);
+
+        let title_node = node
+            .children(&mut node.walk())
+            .find(|n| n.kind() == "heading_content")
+            .map(|n| state.node_text(n).trim().to_string())
+            .unwrap_or_default();
+
+        if title_node.is_empty() {
+            return;
+        }
+
+        while state.node_stack.len() > 1 {
+            let last_level = state.node_stack[state.node_stack.len() - 1].2;
+            if last_level >= level {
+                state.node_stack.pop();
+            } else {
+                break;
+            }
+        }
+
+        let kind = NodeKind::Module;
+        let parent_name = &state.node_stack[state.node_stack.len() - 1].0;
+        let qualified_name = format!("{parent_name}::{title_node}");
+        let id = generate_node_id(
+            &state.file_path,
+            &kind,
+            &title_node,
+            node.start_position().row as u32,
+        );
+
+        let node_obj = Node {
+            id: id.clone(),
+            kind,
+            name: title_node.clone(),
+            qualified_name: qualified_name.clone(),
+            file_path: state.file_path.clone(),
+            start_line: node.start_position().row as u32,
+            end_line: node.end_position().row as u32,
+            start_column: node.start_position().column as u32,
+            end_column: node.end_position().column as u32,
+            signature: Some(format!("{} {}", "#".repeat(level), title_node)),
+            docstring: None,
+            visibility: Visibility::Pub,
+            is_async: false,
+            branches: 0,
+            loops: 0,
+            returns: 0,
+            max_nesting: 0,
+            unsafe_blocks: 0,
+            unchecked_calls: 0,
+            assertions: 0,
+            updated_at: state.timestamp,
+        };
+
+        if let Some((_, parent_id, _)) = state.node_stack.last() {
+            state.edges.push(Edge {
+                source: parent_id.clone(),
+                target: id.clone(),
+                kind: EdgeKind::Contains,
+                line: Some(node.start_position().row as u32),
+            });
+        }
+
+        state.nodes.push(node_obj);
+        state.node_stack.push((title_node, id, level));
+    }
+
+    fn visit_link(state: &mut ExtractionState, node: TsNode<'_>) {
+        let url_node = node
+            .children(&mut node.walk())
+            .find(|n| n.kind() == "link_destination");
+
+        let Some(url_node) = url_node else {
+            return;
+        };
+
+        let url = state.node_text(url_node);
+
+        if url.starts_with("http://") || url.starts_with("https://") {
+            return;
+        }
+
+        let target_path = url.trim_start_matches("file:");
+        let target_ext = target_path.rsplit('.').next().unwrap_or("");
+
+        if !is_code_extension(target_ext) {
+            return;
+        }
+
+        let text_node = node
+            .children(&mut node.walk())
+            .find(|n| n.kind() == "link_text");
+        let link_text = text_node.map_or_else(|| target_path.to_string(), |n| state.node_text(n));
+
+        let target_id = generate_node_id(target_path, &NodeKind::Use, &link_text, 0);
+
+        if let Some((_, parent_id, _)) = state.node_stack.last() {
+            state.edges.push(Edge {
+                source: parent_id.clone(),
+                target: target_id,
+                kind: EdgeKind::Uses,
+                line: Some(node.start_position().row as u32),
+            });
+        }
+    }
 }
 
 fn is_code_extension(ext: &str) -> bool {
     matches!(
         ext,
-        "rs"
-            | "py"
+        "rs" | "py"
             | "js"
             | "ts"
             | "tsx"

@@ -1243,17 +1243,14 @@ impl TokenSave {
 
     /// Re-indexes a single file after an edit.
     async fn reindex_file(&self, file_path: &str) -> Result<()> {
+        let Some(extractor) = self.registry.extractor_for_file(file_path) else {
+            return Ok(());
+        };
+
         let abs_path = self.absolute_path(file_path);
         let source = std::fs::read_to_string(&abs_path).map_err(|e| TokenSaveError::Config {
             message: format!("failed to read file {file_path}: {e}"),
         })?;
-
-        let extractor =
-            self.registry
-                .extractor_for_file(file_path)
-                .ok_or_else(|| TokenSaveError::Config {
-                    message: format!("unsupported file type: {file_path}"),
-                })?;
 
         let mut result = extractor.extract(file_path, &source);
         result.sanitize();
