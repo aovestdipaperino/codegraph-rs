@@ -1826,9 +1826,12 @@ async fn test_insert_at_ambiguous_anchor() {
     let text = extract_text(&result.value);
     let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(parsed["success"], false);
-
+<<<<<<< HEAD
     assert!(parsed["message"]
         .as_str()
         .unwrap()
         .contains("matches 2 lines"));
+=======
+    assert!(parsed["message"].as_str().unwrap().contains("matches 2 lines"));
+>>>>>>> 38051fc (added 3 new editor commands: str_replace, multi_str_replace, insert_at, ast_grep_rewrite)
 }
