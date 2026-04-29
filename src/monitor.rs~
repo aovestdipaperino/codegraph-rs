@@ -529,9 +529,13 @@ fn monitor_loop(
         let mut grand_total: u64 = 0;
 
         for project in &projects {
+<<<<<<< HEAD
             let Some(methods) = grouped.get(project) else {
                 continue;
             };
+=======
+            let Some(methods) = grouped.get(project) else { continue };
+>>>>>>> 4363c30 (fix: aggregate by project and method)
             let mut method_lines: Vec<String> = methods.keys().cloned().collect();
             method_lines.sort();
 
