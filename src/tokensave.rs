@@ -883,6 +883,7 @@ impl TokenSave {
         write_dirty_sentinel(&self.project_root);
         let start = Instant::now();
 
+        // Phase 1: scan
         on_progress(0, 0, "scanning files");
         let phase_start = Instant::now();
         let current_files = self.scan_files();
@@ -892,7 +893,7 @@ impl TokenSave {
             phase_start.elapsed().as_secs_f64()
         ));
 
-        // Stat all files in parallel to get (mtime, size) — ~11ms for 20k files
+        // Phase 2: stat all files in parallel, partition into change buckets
         on_progress(0, 0, "checking file timestamps");
         let phase_start = Instant::now();
         let project_root = &self.project_root;
@@ -910,16 +911,13 @@ impl TokenSave {
             phase_start.elapsed().as_secs_f64()
         ));
 
-        // Load all DB file records into a map for O(1) lookups
         let db_files = self.db.get_all_files().await?;
         let db_map: HashMap<String, FileRecord> =
             db_files.into_iter().map(|f| (f.path.clone(), f)).collect();
 
-        // Partition files by comparing (mtime, size) against stored values
         let mut new_files: Vec<String> = Vec::new();
         let mut stat_changed: Vec<String> = Vec::new();
-        let mut current_set: std::collections::HashSet<&str> =
-            std::collections::HashSet::with_capacity(file_stats.len());
+        let mut current_set = std::collections::HashSet::with_capacity(file_stats.len());
         let mut stat_map: HashMap<String, (i64, u64)> = HashMap::with_capacity(file_stats.len());
 
         for (path, mtime, size) in &file_stats {
@@ -927,21 +925,17 @@ impl TokenSave {
             stat_map.insert(path.clone(), (*mtime, *size));
             match db_map.get(path) {
                 None => new_files.push(path.clone()),
-                Some(record) => {
-                    if record.modified_at != *mtime || record.size != *size {
-                        stat_changed.push(path.clone());
-                    }
+                Some(record) if record.modified_at != *mtime || record.size != *size => {
+                    stat_changed.push(path.clone());
                 }
+                Some(_) => {}
             }
         }
-
-        // Detect removed files from the same DB map
         let removed: Vec<String> = db_map
             .keys()
-            .filter(|path| !current_set.contains(path.as_str()))
+            .filter(|p| !current_set.contains(p.as_str()))
             .cloned()
             .collect();
-
         on_verbose(&format!(
             "changes: {} new, {} stat-changed, {} removed, {} unchanged",
             new_files.len(),
@@ -950,11 +944,80 @@ impl TokenSave {
             file_stats.len() - new_files.len() - stat_changed.len()
         ));
 
-        // Read + hash only files with changed stats or new files
+        // Phase 3: hash files whose stat changed
         on_progress(0, 0, "hashing changed files");
+        let (hash_map, skipped) = self.hash_changed(&new_files, &stat_changed, &on_verbose);
+
+        // Phase 4: separate true modifications from mtime-only touches
+        on_progress(0, 0, "detecting changes");
+        let mut stale: Vec<String> = Vec::new();
+        let mut mtime_only: Vec<String> = Vec::new();
+        for path in &stat_changed {
+            if let (Some(new_hash), Some(record)) = (hash_map.get(path), db_map.get(path)) {
+                if record.content_hash == *new_hash {
+                    mtime_only.push(path.clone());
+                } else {
+                    stale.push(path.clone());
+                }
+            }
+        }
+        on_verbose(&format!(
+            "content check: {} modified, {} mtime-only",
+            stale.len(),
+            mtime_only.len()
+        ));
+        for path in &mtime_only {
+            if let (Some(record), Some(&(mtime, size))) = (db_map.get(path), stat_map.get(path)) {
+                self.db
+                    .upsert_file(&FileRecord { modified_at: mtime, size, ..record.clone() })
+                    .await?;
+            }
+        }
+
+        // Phase 5: remove deleted files from the DB
+        for path in &removed {
+            on_progress(0, 0, &format!("removing {path}"));
+            self.db.delete_file(path).await?;
+        }
+
+        // Phase 6: extract and insert new/stale files
+        let to_index: Vec<String> = stale.iter().chain(new_files.iter()).cloned().collect();
+        self.index_files(&to_index, &stat_map, &on_progress, &on_verbose)
+            .await?;
+
+        // Phase 7: resolve cross-file references (must run after all inserts)
+        if !to_index.is_empty() {
+            self.resolve_cross_file_refs(&on_progress, &on_verbose)
+                .await?;
+        }
+
+        self.db
+            .set_metadata("last_sync_at", &current_timestamp().to_string())
+            .await?;
+        clear_dirty_sentinel(&self.project_root);
+        Ok(SyncResult {
+            files_added: new_files.len(),
+            files_modified: stale.len(),
+            files_removed: removed.len(),
+            duration_ms: start.elapsed().as_millis() as u64,
+            added_paths: new_files,
+            modified_paths: stale,
+            skipped_paths: skipped,
+            removed_paths: removed,
+        })
+    }
+
+    // Parallel hash of new + stat-changed files. Returns (hash_map, skipped).
+    fn hash_changed<V: Fn(&str)>(
+        &self,
+        new_files: &[String],
+        stat_changed: &[String],
+        on_verbose: &V,
+    ) -> (HashMap<String, String>, Vec<(String, String)>) {
         let phase_start = Instant::now();
+        let project_root = &self.project_root;
         let needs_read: Vec<&String> = new_files.iter().chain(stat_changed.iter()).collect();
-        let hash_results: Vec<_> = needs_read
+        let results: Vec<_> = needs_read
             .par_iter()
             .map(|path| {
                 let abs_path = project_root.join(path.as_str());
@@ -964,17 +1027,12 @@ impl TokenSave {
                 }
             })
             .collect();
-
-        let mut skipped: Vec<(String, String)> = Vec::new();
         let mut hash_map: HashMap<String, String> = HashMap::new();
-        for result in hash_results {
-            match result {
-                Ok((path, hash)) => {
-                    hash_map.insert(path, hash);
-                }
-                Err((path, reason)) => {
-                    skipped.push((path, reason));
-                }
+        let mut skipped: Vec<(String, String)> = Vec::new();
+        for r in results {
+            match r {
+                Ok((path, hash)) => { hash_map.insert(path, hash); }
+                Err((path, reason)) => { skipped.push((path, reason)); }
             }
         }
         on_verbose(&format!(
@@ -983,54 +1041,26 @@ impl TokenSave {
             phase_start.elapsed().as_secs_f64(),
             skipped.len()
         ));
+        (hash_map, skipped)
+    }
 
-        // Among stat_changed files, find those with actually different content
-        on_progress(0, 0, "detecting changes");
-        let mut stale: Vec<String> = Vec::new();
-        let mut mtime_only_changed: Vec<String> = Vec::new();
-        for path in &stat_changed {
-            if let Some(new_hash) = hash_map.get(path) {
-                if let Some(record) = db_map.get(path) {
-                    if record.content_hash == *new_hash {
-                        // mtime changed but content identical (e.g. touch) —
-                        // update stored mtime so we skip it next time
-                        mtime_only_changed.push(path.clone());
-                    } else {
-                        stale.push(path.clone());
-                    }
-                }
-            }
-        }
-        on_verbose(&format!(
-            "content check: {} modified, {} mtime-only",
-            stale.len(),
-            mtime_only_changed.len()
-        ));
-
-        // Update mtime for false-positive files so future syncs skip them
-        for path in &mtime_only_changed {
-            if let (Some(record), Some(&(mtime, size))) = (db_map.get(path), stat_map.get(path)) {
-                let updated = FileRecord {
-                    modified_at: mtime,
-                    size,
-                    ..record.clone()
-                };
-                self.db.upsert_file(&updated).await?;
-            }
-        }
-
-        // Remove deleted files
-        for path in &removed {
-            on_progress(0, 0, &format!("removing {path}"));
-            self.db.delete_file(path).await?;
-        }
-
-        // Re-index stale and new files — extract in parallel, insert sequentially
-        let to_index: Vec<String> = stale.iter().chain(new_files.iter()).cloned().collect();
+    // Parallel extraction followed by sequential DB insertion.
+    async fn index_files<F, V>(
+        &self,
+        to_index: &[String],
+        stat_map: &HashMap<String, (i64, u64)>,
+        on_progress: &F,
+        on_verbose: &V,
+    ) -> Result<()>
+    where
+        F: Fn(usize, usize, &str),
+        V: Fn(&str),
+    {
+        let project_root = &self.project_root;
         let registry = &self.registry;
-
         let phase_start = Instant::now();
-        let sync_extractions: Vec<_> = to_index
+
+        let extractions: Vec<_> = to_index
             .par_iter()
             .filter_map(|file_path| {
                 let abs_path = project_root.join(file_path);
@@ -1047,33 +1077,29 @@ impl TokenSave {
             })
             .collect();
 
-        let total = sync_extractions.len();
+        let total = extractions.len();
         let mut total_nodes = 0usize;
         let mut total_edges = 0usize;
-        for (idx, (file_path, result, hash, size, mtime)) in sync_extractions.iter().enumerate() {
+        for (idx, (file_path, result, hash, size, mtime)) in extractions.iter().enumerate() {
             on_progress(idx + 1, total, file_path);
-
             total_nodes += result.nodes.len();
             total_edges += result.edges.len();
-
             self.db.delete_nodes_by_file(file_path).await?;
             self.db.insert_nodes(&result.nodes).await?;
             self.db.insert_edges(&result.edges).await?;
             if !result.unresolved_refs.is_empty() {
-                self.db
-                    .insert_unresolved_refs(&result.unresolved_refs)
-                    .await?;
+                self.db.insert_unresolved_refs(&result.unresolved_refs).await?;
             }
-
-            let file_record = FileRecord {
-                path: file_path.clone(),
-                content_hash: hash.clone(),
-                size: *size,
-                modified_at: *mtime,
-                indexed_at: current_timestamp(),
-                node_count: result.nodes.len() as u32,
-            };
-            self.db.upsert_file(&file_record).await?;
+            self.db
+                .upsert_file(&FileRecord {
+                    path: file_path.clone(),
+                    content_hash: hash.clone(),
+                    size: *size,
+                    modified_at: *mtime,
+                    indexed_at: current_timestamp(),
+                    node_count: result.nodes.len() as u32,
+                })
+                .await?;
         }
         if !to_index.is_empty() {
             on_verbose(&format!(
@@ -1084,44 +1110,36 @@ impl TokenSave {
                 phase_start.elapsed().as_secs_f64()
             ));
         }
+        Ok(())
+    }
 
-        // Resolve references (call edges, uses, etc.) across all files.
-        // This must run after all files are indexed so cross-file references
-        // can find their targets.
-        if !to_index.is_empty() {
-            on_progress(0, 0, "resolving references");
-            let phase_start = Instant::now();
-            let unresolved = self.db.get_unresolved_refs().await?;
-            if !unresolved.is_empty() {
-                let resolver = ReferenceResolver::new(&self.db).await;
-                let resolution = resolver.resolve_all(&unresolved);
-                let edges = resolver.create_edges(&resolution.resolved);
-                if !edges.is_empty() {
-                    self.db.insert_edges(&edges).await?;
-                }
+    // Resolves cross-file references after all files have been indexed.
+    async fn resolve_cross_file_refs<F, V>(
+        &self,
+        on_progress: &F,
+        on_verbose: &V,
+    ) -> Result<()>
+    where
+        F: Fn(usize, usize, &str),
+        V: Fn(&str),
+    {
+        on_progress(0, 0, "resolving references");
+        let phase_start = Instant::now();
+        let unresolved = self.db.get_unresolved_refs().await?;
+        if !unresolved.is_empty() {
+            let resolver = ReferenceResolver::new(&self.db).await;
+            let resolution = resolver.resolve_all(&unresolved);
+            let edges = resolver.create_edges(&resolution.resolved);
+            if !edges.is_empty() {
+                self.db.insert_edges(&edges).await?;
             }
-            on_verbose(&format!(
-                "resolved {} references in {:.1}s",
-                unresolved.len(),
-                phase_start.elapsed().as_secs_f64()
-            ));
         }
-
-        self.db
-            .set_metadata("last_sync_at", &current_timestamp().to_string())
-            .await?;
-
-        clear_dirty_sentinel(&self.project_root);
-        Ok(SyncResult {
-            files_added: new_files.len(),
-            files_modified: stale.len(),
-            files_removed: removed.len(),
-            duration_ms: start.elapsed().as_millis() as u64,
-            added_paths: new_files,
-            modified_paths: stale,
-            skipped_paths: skipped,
-            removed_paths: removed,
-        })
+        on_verbose(&format!(
+            "resolved {} references in {:.1}s",
+            unresolved.len(),
+            phase_start.elapsed().as_secs_f64()
+        ));
+        Ok(())
     }
 
     /// Scans the project root for source files in all supported languages,
