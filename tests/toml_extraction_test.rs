@@ -20,7 +20,8 @@ fn test_toml_file_node_is_root() {
 
 #[test]
 fn test_toml_extracts_tables() {
-    let source = "[package]\nname = \"foo\"\n\n[dependencies]\nserde = \"1\"\n\n[features]\ndefault = []\n";
+    let source =
+        "[package]\nname = \"foo\"\n\n[dependencies]\nserde = \"1\"\n\n[features]\ndefault = []\n";
     let result = TomlExtractor.extract("Cargo.toml", source);
     assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
     let modules: Vec<_> = result
