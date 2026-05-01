@@ -31,7 +31,7 @@ default = ["full"]
 lite = []
 
 medium = ["lang-dart", "lang-pascal", "lang-php", "lang-ruby", "lang-bash", "lang-protobuf", "lang-powershell", "lang-nix", "lang-vbnet"]
-full = ["medium", "lang-lua", "lang-zig", "lang-objc", "lang-perl", "lang-batch", "lang-fortran", "lang-cobol", "lang-msbasic2", "lang-gwbasic", "lang-qbasic", "lang-dockerfile", "lang-glsl", "lang-markdown"]
+full = ["medium", "lang-lua", "lang-zig", "lang-objc", "lang-perl", "lang-batch", "lang-fortran", "lang-cobol", "lang-msbasic2", "lang-gwbasic", "lang-qbasic", "lang-dockerfile", "lang-glsl", "lang-markdown", "lang-toml"]
 
 # Language features (all grammars provided by tokensave-large-treesitters)
 lang-dart = []
@@ -56,6 +56,7 @@ lang-qbasic = []
 lang-dockerfile = []
 lang-glsl = []
 lang-markdown = []
+lang-toml = []
 test-transport = []
 
 [lib]
@@ -68,6 +69,9 @@ path = "src/main.rs"
 [dependencies]
 libsql = "0.9.30"
 tree-sitter = "0.26"
+# TODO(toml): drop direct dep once tokensave-large-treesitters >= 0.3.3 ships
+# the vendored TOML grammar and switch to tokensave_large_treesitters::toml::LANGUAGE.
+tree-sitter-toml-ng = "0.7"
 tokensave-large-treesitters = "0.3.2"
 ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }
 ndarray = "0.17"

@@ -62,6 +62,8 @@ mod perl_extractor;
 pub(crate) mod qbasic_extractor;
 #[cfg(feature = "lang-qbasic")]
 mod quickbasic_extractor;
+#[cfg(feature = "lang-toml")]
+mod toml_extractor;
 #[cfg(feature = "lang-zig")]
 mod zig_extractor;
 
@@ -125,6 +127,8 @@ pub use perl_extractor::PerlExtractor;
 pub use qbasic_extractor::QBasicExtractor;
 #[cfg(feature = "lang-qbasic")]
 pub use quickbasic_extractor::QuickBasicExtractor;
+#[cfg(feature = "lang-toml")]
+pub use toml_extractor::TomlExtractor;
 #[cfg(feature = "lang-zig")]
 pub use zig_extractor::ZigExtractor;
 
@@ -223,6 +227,8 @@ impl LanguageRegistry {
         extractors.push(Box::new(GlslExtractor));
         #[cfg(feature = "lang-markdown")]
         extractors.push(Box::new(MarkdownExtractor));
+        #[cfg(feature = "lang-toml")]
+        extractors.push(Box::new(TomlExtractor));
 
         Self { extractors }
     }
