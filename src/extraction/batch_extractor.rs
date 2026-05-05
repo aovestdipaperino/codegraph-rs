@@ -91,6 +91,7 @@ impl BatchExtractor {
             qualified_name: file_path.to_string(),
             file_path: file_path.to_string(),
             start_line: 0,
+            attrs_start_line: 0,
             end_line: source.lines().count().saturating_sub(1) as u32,
             start_column: 0,
             end_column: 0,
@@ -148,7 +149,7 @@ impl BatchExtractor {
             };
 
             match child.kind() {
-                "label" => {
+                "function_definition" => {
                     Self::visit_label(state, root, i);
                 }
                 "variable_assignment" => {
@@ -188,7 +189,7 @@ impl BatchExtractor {
         let mut j = label_index + 1;
         while j < child_count {
             if let Some(sibling) = root.child(j as u32) {
-                if sibling.kind() == "label" {
+                if sibling.kind() == "function_definition" {
                     // End just before the next label.
                     break;
                 }
@@ -211,6 +212,7 @@ impl BatchExtractor {
             qualified_name,
             file_path: state.file_path.clone(),
             start_line,
+            attrs_start_line: start_line,
             end_line,
             start_column,
             end_column,
@@ -287,6 +289,7 @@ impl BatchExtractor {
             qualified_name,
             file_path: state.file_path.clone(),
             start_line,
+            attrs_start_line: start_line,
             end_line,
             start_column,
             end_column,
@@ -374,7 +377,7 @@ impl BatchExtractor {
 
         while j < child_count {
             if let Some(sibling) = root.child(j as u32) {
-                if sibling.kind() == "label" {
+                if sibling.kind() == "function_definition" {
                     break;
                 }
                 Self::extract_call_sites_recursive(state, sibling, fn_node_id);
